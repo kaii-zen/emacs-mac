@@ -284,9 +284,9 @@ If REALNAME is nil, ignore that author.")
 
 
 (defvar authors-obsolete-files-regexps
-  '(".*loaddefs\\.el$"			; not obsolete, but auto-generated
-    "\\.\\(bzr\\|cvs\\|git\\)ignore$"		; obsolete or uninteresting
-    "\\.arch-inventory$"
+  '(".*loaddefs\\.el\\'"		; not obsolete, but auto-generated
+    "\\.\\(bzr\\|cvs\\|git\\)ignore\\'"		; obsolete or uninteresting
+    "\\.arch-inventory\\'"
     "ChangeLog\\(\\.[0-9]+\\)?\\'"
     "\\(automated\\|test\\)/data/"	; not interesting
     "cedet/tests/"
@@ -366,7 +366,7 @@ Changes to files matching one of the regexps in this list are not listed.")
     "lib/stdarg.in.h" "lib/stdbool.in.h"
     "unidata/bidimirror.awk" "unidata/biditype.awk"
     "split-man" "Xkeymap.txt" "ms-7bkermit" "ulimit.hack"
-    "gnu-hp300" "refcard.bit" "ledit.l" "forms.README" "forms-d2.dat"
+    "gnu-hp300" "refcard.bit" "forms.README" "forms-d2.dat"
     "CXTERM-DIC/PY.tit" "CXTERM-DIC/ZIRANMA.tit"
     "CXTERM-DIC/CTLau.tit" "CXTERM-DIC/CTLauB.tit"
     "copying.paper" "celibacy.1" "condom.1" "echo.msg" "sex.6"
@@ -479,6 +479,9 @@ Changes to files matching one of the regexps in this list are not listed.")
     ;; Replaced by lisp/thread.el
     "lisp/emacs-lisp/thread-list.el"
     "etc/images/slash.bmp"
+    "src/mini-gmp-emacs.c"
+    "lib/dosname.h"
+    "lib/putenv.c"
     )
   "List of files and directories to ignore.
 Changes to files in this list are not listed.")
@@ -615,7 +618,7 @@ Changes to files in this list are not listed.")
     ;; No longer distributed: lselect.el.
     ("Lucid, Inc." :changed "bytecode.c" "byte-opt.el" "byte-run.el"
      "bytecomp.el" "delsel.el" "disass.el" "faces.el" "font-lock.el"
-     "lmenu.el" "mailabbrev.el" "select.el" "xfaces.c" "xselect.c")
+     "mailabbrev.el" "select.el" "xfaces.c" "xselect.c")
     ;; MCC.  No longer distributed: emacsserver.c.
     ("Microelectronics and Computer Technology Corporation"
      :changed "etags.c" "emacsclient.c" "movemail.c"
@@ -779,7 +782,7 @@ Changes to files in this list are not listed.")
     "erc-hecomplete.el"
     "eshell/esh-maint.el"
     "language/persian.el"
-    "ledit.el" "meese.el" "iswitchb.el" "longlines.el"
+    "meese.el" "iswitchb.el" "longlines.el"
     "mh-exec.el" "mh-init.el" "mh-customize.el"
     "net/zone-mode.el" "xesam.el"
     "term/mac-win.el" "sup-mouse.el"
@@ -884,7 +887,9 @@ Changes to files in this list are not listed.")
     "library-of-babel.org"
     "flymake-elisp.el"
     "flymake-ui.el"
-    "pinentry.el")
+    "pinentry.el"
+    "ledit.el"
+    "lmenu.el")
   "File names which are valid, but no longer exist (or cannot be found)
 in the repository.")
 
@@ -1129,6 +1134,8 @@ in the repository.")
     ("lisp/emacs-lisp/thread.el" . "lisp/thread.el")
     ("lisp/emacs-lisp/cl.el" . "lisp/emacs-lisp/cl-lib.el")
     ("lisp/progmodes/mantemp.el" . "lisp/obsolete/mantemp.el")
+    ("src/mini-gmp.c" . "lib/mini-gmp.c")
+    ("src/mini-gmp.h" . "lib/mini-gmp.h")
     ("sysdep.c" . "src/sysdep.c")
     )
   "Alist of files which have been renamed during their lifetime.
@@ -1151,7 +1158,7 @@ Elements are (OLDNAME . NEWNAME).")
 \\(\\(cs\\|fr\\|sk\\)-\\)?survival\\)\\.tex\\'" "refcards/\\&")
     ("\\`refcard-\\(de\\|pl\\)\\.tex\\'" "refcards/\\1-refcard.tex")
     ("\\`\\(refcards/\\)?fr-drdref\\.tex\\'" "refcards/fr-dired-ref.tex")
-    ("^\\(TUTORIAL[^/]*\\)" "tutorials/\\1")
+    ("\\`\\(TUTORIAL[^/]*\\)" "tutorials/\\1")
     ("\\`themes/dev-\\(tsdh-\\(?:light\\|dark\\)-theme\\.el\\)\\'"
      "themes/\\1")
     ;; Moved from lisp/toolbar to etc/images.
@@ -1176,9 +1183,9 @@ remove\\|run\\|until\\|up\\|watch\\)\\(\\.\\(?:pb\\|xp\\)m\\)\\'"
     ("\\`\\(toolbar/gud-\\|images/gud/\\)s\\(i\\)?\\(\\.\\(?:pb\\|xp\\)m\\)\\'"
      "images/gud/step\\2\\3")
     ("\\`toolbar/lc-\\([-a-z]+\\.xpm\\)\\'" "images/low-color/\\1")
-    ("^\\(tree-widget/\\(?:default\\|folder\\)/[-a-z]+\\.\\(png\\|xpm\\)\\)$"
+    ("\\`\\(tree-widget/\\(?:default\\|folder\\)/[-a-z]+\\.\\(png\\|xpm\\)\\)\\'"
      "images/\\1")
-    ("^\\(images/icons/\\)mac\\(emacs\\)_\\([0-9]+\\)\\(\\.png\\)"
+    ("\\`\\(images/icons/\\)mac\\(emacs\\)_\\([0-9]+\\)\\(\\.png\\)"
      "\\1\\2\\3_mac\\4")
     ("\\(images/icons/\\)emacs_\\([0-9][0-9]\\)\\.png"
      "\\1hicolor/\\2x\\2/apps/emacs.png")
@@ -1209,10 +1216,10 @@ ediff\\|emerge\\|log-edit\\|log-view\\|pcvs\\|smerge-mode\\|vc\\)\\.el\\'"
     ;; Maybe not the exact new name, but disambiguates from lisp/.
     ("automated/\\([^/]*\\)\\.el\\'" "\\1-tests.el")
     ;; NB lax rules should come last.
-    ("^m/m-\\(.*\\.h\\)$" "m/\\1" t)
-    ("^m-\\(.*\\.h\\)$" "\\1" t)
-    ("^s/s-\\(.*\\.h\\)$" "s/\\1" t)
-    ("^s-\\(.*\\.h\\)$" "\\1" t)
+    ("\\`m/m-\\(.*\\.h\\)\\'" "m/\\1" t)
+    ("\\`m-\\(.*\\.h\\)\\'" "\\1" t)
+    ("\\`s/s-\\(.*\\.h\\)\\'" "s/\\1" t)
+    ("\\`s-\\(.*\\.h\\)\\'" "\\1" t)
     ("\\.\\(el\\|[ch]\\|x[pb]m\\|pbm\\)\\'" t t)
     )
   "List of regexps and rewriting rules for renamed files.

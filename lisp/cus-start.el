@@ -73,9 +73,11 @@
        '(choice
          (const :tag "Frame default" t)
          (const :tag "Filled box" box)
+         (cons :tag "Box with specified size"
+               (const box) integer)
          (const :tag "Hollow cursor" hollow)
          (const :tag "Vertical bar" bar)
-         (cons  :tag "Vertical bar with specified width"
+         (cons  :tag "Vertical bar with specified height"
                 (const bar) integer)
          (const :tag "Horizontal bar" hbar)
          (cons  :tag "Horizontal bar with specified width"
@@ -98,6 +100,11 @@
 	     (ctl-arrow display boolean)
 	     (truncate-lines display boolean)
 	     (word-wrap display boolean)
+             (word-wrap-by-category
+              display boolean "28.1"
+              :set (lambda (symbol value)
+                     (set-default symbol value)
+                     (when value (require 'kinsoku))))
 	     (selective-display-ellipses display boolean)
 	     (indicate-empty-lines fringe boolean)
 	     (indicate-buffer-boundaries
@@ -610,6 +617,11 @@ Leaving \"Default\" unchecked is equivalent with specifying a default of
 	     ;;    			(directory :format "%v"))))
 	     (load-prefer-newer lisp boolean "24.4")
 	     ;; minibuf.c
+	     (minibuffer-follows-selected-frame
+              minibuffer (choice (const :tag "Always" t)
+                                 (const :tag "When used" hybrid)
+                                 (const :tag "Never" nil))
+              "28.1")
 	     (enable-recursive-minibuffers minibuffer boolean)
 	     (history-length minibuffer
 			     (choice (const :tag "Infinite" t) integer)
@@ -845,7 +857,9 @@ since it could result in memory overflow and make Emacs crash."
 	     (scroll-margin windows integer)
              (maximum-scroll-margin windows float "26.1")
 	     (hscroll-margin windows integer "22.1")
-	     (hscroll-step windows number "22.1")
+	     (hscroll-step windows
+                           (choice (const :tag "Center horizontally" nil)
+                                   number) "22.1")
 	     (truncate-partial-width-windows
 	      display
 	      (choice (integer :tag "Truncate if narrower than")
@@ -1005,7 +1019,11 @@ since it could result in memory overflow and make Emacs crash."
               "27.1"
               :safe (lambda (value) (or (characterp value) (null value))))
 	     ;; xfaces.c
-	     (scalable-fonts-allowed display boolean "22.1")
+	     (scalable-fonts-allowed
+              display (choice (const :tag "Don't allow scalable fonts" nil)
+                              (const :tag "Allow any scalable font" t)
+                              (repeat regexp))
+              "22.1")
 	     ;; xfns.c
 	     (x-bitmap-file-path installation
 				 (repeat (directory :format "%v")))
@@ -1090,7 +1108,7 @@ since it could result in memory overflow and make Emacs crash."
       ;; Don't re-add to custom-delayed-init-variables post-startup.
       (unless after-init-time
 	;; Note this is the _only_ initialize property we handle.
-	(if (eq (cadr (memq :initialize rest)) 'custom-initialize-delay)
+	(if (eq (cadr (memq :initialize rest)) #'custom-initialize-delay)
 	    ;; These vars are defined early and should hence be initialized
 	    ;; early, even if this file happens to be loaded late.  so add them
 	    ;; to the end of custom-delayed-init-variables.  Otherwise,

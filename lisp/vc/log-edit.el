@@ -51,6 +51,9 @@
 
 ;; The main keymap
 
+(define-obsolete-variable-alias 'vc-log-mode-map 'log-edit-mode-map "28.1")
+(define-obsolete-variable-alias 'vc-log-entry-mode 'log-edit-mode-map "28.1")
+
 (easy-mmode-defmap log-edit-mode-map
   '(("\C-c\C-c" . log-edit-done)
     ("\C-c\C-a" . log-edit-insert-changelog)
@@ -66,10 +69,6 @@
     ("\C-c?"	. log-edit-mode-help))
   "Keymap for the `log-edit-mode' (to edit version control log messages)."
   :group 'log-edit)
-
-;; Compatibility with old names.  Should we bother ?
-(defvar vc-log-mode-map log-edit-mode-map)
-(defvar vc-log-entry-mode vc-log-mode-map)
 
 (easy-menu-define log-edit-menu log-edit-mode-map
   "Menu used for `log-edit-mode'."
@@ -245,7 +244,9 @@ If the optional argument STRIDE is present, that is a step-width to use
 when going through the comment ring."
   ;; Why substring rather than regexp ?   -sm
   (interactive
-   (list (read-string "Comment substring: " nil nil log-edit-last-comment-match)))
+   (list (read-string (format-prompt "Comment substring"
+                                     log-edit-last-comment-match)
+                      nil nil log-edit-last-comment-match)))
   (unless stride (setq stride 1))
   (if (string= str "")
       (setq str log-edit-last-comment-match)
@@ -262,7 +263,9 @@ when going through the comment ring."
 (defun log-edit-comment-search-forward (str)
   "Search forwards through comment history for a substring match of STR."
   (interactive
-   (list (read-string "Comment substring: " nil nil log-edit-last-comment-match)))
+   (list (read-string (format-prompt "Comment substring"
+                                     log-edit-last-comment-match)
+                      nil nil log-edit-last-comment-match)))
   (log-edit-comment-search-backward str -1))
 
 (defun log-edit-comment-to-change-log (&optional whoami file-name)
@@ -384,7 +387,8 @@ The first subexpression is the actual text of the field.")
          nil lax))
      ("^\n"
       (progn (goto-char (match-end 0)) (1+ (match-end 0))) nil
-      (0 '(:height 0.1 :inverse-video t :extend t))))
+      (0 '(face (:height 0.1 :inverse-video t :extend t)
+           display-line-numbers-disable t rear-nonsticky t))))
     (log-edit--match-first-line (0 'log-edit-summary))))
 
 (defvar log-edit-font-lock-gnu-style nil
@@ -460,16 +464,16 @@ done.  Otherwise, it uses the current buffer."
     (if mode
 	(funcall mode)
       (log-edit-mode))
-    (set (make-local-variable 'log-edit-callback) callback)
+    (setq-local log-edit-callback callback)
     (if (listp params)
 	(dolist (crt params)
 	  (set (make-local-variable (car crt)) (cdr crt)))
       ;; For backward compatibility with log-edit up to version 22.2
       ;; accept non-list PARAMS to mean `log-edit-list'.
-      (set (make-local-variable 'log-edit-listfun) params))
+      (setq-local log-edit-listfun params))
 
-    (if buffer (set (make-local-variable 'log-edit-parent-buffer) parent))
-    (set (make-local-variable 'log-edit-initial-files) (log-edit-files))
+    (if buffer (setq-local log-edit-parent-buffer parent))
+    (setq-local log-edit-initial-files (log-edit-files))
     (when setup
       (erase-buffer)
       (run-hooks 'log-edit-hook))
@@ -486,8 +490,10 @@ the package from which this is used might also provide additional
 commands (under C-x v for VC, for example).
 
 \\{log-edit-mode-map}"
-  (set (make-local-variable 'font-lock-defaults)
-       '(log-edit-font-lock-keywords t))
+  (setq-local font-lock-defaults '(log-edit-font-lock-keywords t))
+  (make-local-variable 'font-lock-extra-managed-props)
+  (cl-pushnew 'rear-nonsticky font-lock-extra-managed-props)
+  (cl-pushnew 'display-line-numbers-disable font-lock-extra-managed-props)
   (setq-local jit-lock-contextually t)  ;For the "first line is summary".
   (setq-local fill-paragraph-function #'log-edit-fill-entry)
   (make-local-variable 'log-edit-comment-ring-index)
@@ -981,16 +987,17 @@ where LOGBUFFER is the name of the ChangeLog buffer, and each
                (visiting-buffer (find-buffer-visiting file)))
            ;; If there is a buffer visiting FILE, and it has a local
            ;; value for `change-log-default-name', use that.
-           (if (and visiting-buffer
+           (or (and visiting-buffer
                     (local-variable-p 'change-log-default-name
-                                      visiting-buffer))
-               (with-current-buffer visiting-buffer
-                 change-log-default-name)
-             ;; `find-change-log' uses `change-log-default-name' if set
-             ;; and sets it before exiting, so we need to work around
-             ;; that memoizing which is undesired here.
-             (setq change-log-default-name nil)
-             (find-change-log)))))
+                                      visiting-buffer)
+                    (with-current-buffer visiting-buffer
+                      change-log-default-name))
+               ;; `find-change-log' uses `change-log-default-name' if set
+               ;; and sets it before exiting, so we need to work around
+               ;; that memoizing which is undesired here.
+               (progn
+                 (setq change-log-default-name nil)
+                 (find-change-log))))))
     (when (or (find-buffer-visiting changelog-file-name)
               (file-exists-p changelog-file-name)
               add-log-dont-create-changelog-file)

@@ -149,7 +149,7 @@ This variable can be set either in .emacs or toggled interactively.
 Use `setq-default' if setting it in .emacs")
 
 (ediff-defvar-local ediff-ignore-similar-regions nil
-  "If t, skip over difference regions that differ only in the white space and line breaks.
+  "If t, skip difference regions that differ only in white space and line breaks.
 This variable can be set either in .emacs or toggled interactively.
 Use `setq-default' if setting it in .emacs")
 
@@ -325,6 +325,10 @@ one optional arguments, diff-number to refine.")
 	    (error-buf ediff-error-buffer))
 	(ediff-skip-unsuitable-frames)
 	(switch-to-buffer error-buf)
+        ;; We output data from the diff command using `raw-text' as
+        ;; the coding system, so decode before displaying.
+        (when (eq ediff-coding-system-for-read 'raw-text)
+          (decode-coding-region (point-min) (point-max) 'undecided))
 	(ediff-kill-buffer-carefully ctl-buf)
 	(user-error "Errors in diff output.  Diff output is in %S" diff-buff))))
 

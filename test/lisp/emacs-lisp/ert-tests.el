@@ -801,6 +801,21 @@ This macro is used to test if macroexpansion in `should' works."
     (should (eql 0 (ert-stats-completed-unexpected stats)))
     (should (eql 1 (ert-stats-skipped stats)))))
 
+(ert-deftest ert-test-with-demoted-errors ()
+  "Check that ERT correctly handles `with-demoted-errors'."
+  :expected-result :failed  ;; FIXME!  Bug#11218
+  (should-not (with-demoted-errors (error "Foo"))))
+
+(ert-deftest ert-test-fail-inside-should ()
+  "Check that `ert-fail' inside `should' works correctly."
+  (let ((result (ert-run-test
+                 (make-ert-test
+                  :name 'test-1
+                  :body (lambda () (should (integerp (ert-fail "Boo"))))))))
+    (should (ert-test-failed-p result))
+    (should (equal (ert-test-failed-condition result)
+                   '(ert-test-failed ("Boo"))))))
+
 
 (provide 'ert-tests)
 

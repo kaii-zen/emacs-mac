@@ -40,7 +40,7 @@
   "Regexp to match faces in `gnus-x-face-directory' to be omitted."
   :version "25.1"
   :group 'gnus-fun
-  :type '(choice (const nil) string))
+  :type '(choice (const nil) regexp))
 
 (defcustom gnus-face-directory (expand-file-name "faces" gnus-directory)
   "Directory where Face PNG files are stored."
@@ -52,7 +52,7 @@
   "Regexp to match faces in `gnus-face-directory' to be omitted."
   :version "25.1"
   :group 'gnus-fun
-  :type '(choice (const nil) string))
+  :type '(choice (const nil) regexp))
 
 (defcustom gnus-convert-pbm-to-x-face-command "pbmtoxbm %s | compface"
   "Command for converting a PBM to an X-Face."
@@ -205,11 +205,12 @@ different input formats."
 (defun gnus-convert-face-to-png (face)
   "Convert FACE (which is base64-encoded) to a PNG.
 The PNG is returned as a string."
-  (mm-with-unibyte-buffer
-    (insert face)
-    (ignore-errors
-      (base64-decode-region (point-min) (point-max)))
-    (buffer-string)))
+  (let ((face (gnus-base64-repad face nil nil t)))
+    (mm-with-unibyte-buffer
+      (insert face)
+      (ignore-errors
+	(base64-decode-region (point-min) (point-max)))
+      (buffer-string))))
 
 ;;;###autoload
 (defun gnus-convert-png-to-face (file)
@@ -285,8 +286,8 @@ colors of the displayed X-Faces."
     (setq file (car file))
     (with-temp-buffer
       (shell-command
-       (format "pnmcut -left 110 -top 30 -width 144 -height 144 '%s' | ppmnorm 2>/dev/null | pnmscale -width 48 | ppmtopgm | pgmtopbm -threshold -value 0.92 | pbmtoxbm | compface"
-	       file)
+       (format "pnmcut -left 110 -top 30 -width 144 -height 144 '%s' | ppmnorm 2>%s | pnmscale -width 48 | ppmtopgm | pgmtopbm -threshold -value 0.92 | pbmtoxbm | compface"
+	       file null-device)
        (current-buffer))
       ;;(sleep-for 3)
       (delete-file file)

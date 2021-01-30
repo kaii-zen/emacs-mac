@@ -56,7 +56,7 @@
   :group 'applications)
 
 (defcustom rcirc-server-alist
-  '(("irc.freenode.net" :channels ("#rcirc")
+  '(("chat.freenode.net" :channels ("#rcirc")
      ;; Don't use the TLS port by default, in case gnutls is not available.
      ;; :port 7000 :encryption tls
      ))
@@ -254,7 +254,7 @@ Examples:
   (\"bitlbee\" bitlbee \"robert\" \"sekrit\")
   (\"dal.net\" nickserv \"bob\" \"sekrit\" \"NickServ@services.dal.net\")
   (\"quakenet.org\" quakenet \"bobby\" \"sekrit\"))"
-  :type '(alist :key-type (string :tag "Server")
+  :type '(alist :key-type (regexp :tag "Server")
 		:value-type (choice (list :tag "NickServ"
 					  (const nickserv)
 					  (string :tag "Nick")
@@ -359,9 +359,9 @@ If VAL is a coding system, it is used for both decoding and encoding
 messages.
 If VAL is a cons of coding systems, the car part is used for decoding,
 and the cdr part is used for encoding."
-  :type '(alist :key-type (choice (string :tag "Channel Regexp")
-					  (cons (string :tag "Channel Regexp")
-						(string :tag "Server Regexp")))
+  :type '(alist :key-type (choice (regexp :tag "Channel Regexp")
+					  (cons (regexp :tag "Channel Regexp")
+						(regexp :tag "Server Regexp")))
 		:value-type (choice coding-system
 				    (cons (coding-system :tag "Decode")
                                           (coding-system :tag "Encode")))))
@@ -415,6 +415,9 @@ will be killed."
 
 (defvar rcirc-server-buffer nil
   "The server buffer associated with this channel buffer.")
+
+(defvar rcirc-server-parameters nil
+  "List of parameters received from the server.")
 
 (defvar rcirc-target nil
   "The channel or user associated with this buffer.")
@@ -586,6 +589,7 @@ If ARG is non-nil, instead prompt for connection parameters."
       (setq-local rcirc-user-disconnect nil)
       (setq-local rcirc-user-authenticated nil)
       (setq-local rcirc-connecting t)
+      (setq-local rcirc-server-parameters nil)
 
       (add-hook 'auto-save-hook 'rcirc-log-write)
 
@@ -625,7 +629,7 @@ SERVER-PLIST is the property list for the server."
         (default (or (plist-get server-plist :encryption)
                      "plain")))
     (intern
-     (completing-read (format "Encryption (default %s): " default)
+     (completing-read (format-prompt "Encryption" default)
                       choices nil t nil nil default))))
 
 (defun rcirc-keepalive ()
@@ -1503,7 +1507,7 @@ is found by looking up RESPONSE in `rcirc-response-formats'."
 (make-variable-buffer-local 'rcirc-last-sender)
 
 (defcustom rcirc-omit-threshold 100
-  "Number of lines since last activity from a nick before `rcirc-omit-responses' are omitted."
+  "Lines since last activity from a nick before `rcirc-omit-responses' are omitted."
   :type 'integer)
 
 (defcustom rcirc-log-process-buffers nil
@@ -2421,7 +2425,7 @@ keywords when no KEYWORD is given."
 	 (concat
 	  "\\(?:"
 	  ;; Match paired parentheses, e.g. in Wikipedia URLs:
-	  "[" chars punct "]+" "(" "[" chars punct "]+" "[" chars "]*)" "[" chars "]"
+	  "[" chars punct "]+" "(" "[" chars punct "]+" ")" "[" chars "]"
 	  "\\|"
 	  "[" chars punct     "]+" "[" chars "]"
 	  "\\)"))
@@ -2626,12 +2630,16 @@ the only argument."
                (and ;; nickserv
                 (string= sender "NickServ")
                 (string= target rcirc-nick)
-                (member message
-                        (list
-                         (format "You are now identified for \C-b%s\C-b." rcirc-nick)
-			 (format "You are successfully identified as \C-b%s\C-b." rcirc-nick)
-                         "Password accepted - you are now recognized."
-                         )))
+                (cl-member
+                 message
+                 (list
+                  (format "You are now identified for \C-b%s\C-b." rcirc-nick)
+                  (format "You are successfully identified as \C-b%s\C-b."
+                          rcirc-nick)
+                  "Password accepted - you are now recognized.")
+                 ;; The nick may have a different case, so match
+                 ;; case-insensitively (Bug#39345).
+                 :test #'cl-equalp))
                (and ;; quakenet
                 (string= sender "Q")
                 (string= target rcirc-nick)
@@ -2869,9 +2877,28 @@ Not in rfc1459.txt"
 (defun rcirc-handler-433 (process sender args text)
   "ERR_NICKNAMEINUSE"
   (rcirc-handler-generic process "433" sender args text)
-  (let* ((new-nick (concat (cadr args) "`")))
-    (with-rcirc-process-buffer process
-      (rcirc-cmd-nick new-nick nil process))))
+  (with-rcirc-process-buffer process
+    (let* ((length (string-to-number
+                    (or (rcirc-server-parameter-value 'nicklen)
+                        "16"))))
+      (rcirc-cmd-nick (rcirc--make-new-nick (cadr args) length) nil process))))
+
+(defun rcirc--make-new-nick (nick length)
+  ;; If we already have some ` chars at the end, then shorten the
+  ;; non-` bit of the name.
+  (when (= (length nick) length)
+    (setq nick (replace-regexp-in-string "[^`]\\(`+\\)\\'" "\\1" nick)))
+  (concat
+   (if (>= (length nick) length)
+       (substring nick 0 (1- length))
+     nick)
+   "`"))
+
+(defun rcirc-handler-005 (process sender args text)
+  "ERR_NICKNAMEINUSE"
+  (rcirc-handler-generic process "005" sender args text)
+  (with-rcirc-process-buffer process
+    (setq rcirc-server-parameters (append rcirc-server-parameters args))))
 
 (defun rcirc-authenticate ()
   "Send authentication to process associated with current buffer.
@@ -3067,6 +3094,13 @@ Passwords are stored in `rcirc-authinfo' (which see)."
   "Return true if point is past the input marker."
   (>= (point) rcirc-prompt-end-marker))
 
+
+(defun rcirc-server-parameter-value (parameter)
+  (cl-loop for elem in rcirc-server-parameters
+           for setting = (split-string elem "=")
+           when (and (= (length setting) 2)
+                     (string-equal (downcase (car setting)) parameter))
+           return (cadr setting)))
 
 (provide 'rcirc)
 

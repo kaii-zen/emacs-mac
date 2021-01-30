@@ -153,8 +153,8 @@ The first time we visit such a file, _XXX_HEADER_FILE_INCLUDED_ is
 undefined, and so nothing is hidden.  The next time we visit it, everything will
 be hidden.
 
-This behavior is generally undesirable.  If this option is non-nil, the outermost
-#if is always visible."
+This behavior is generally undesirable.  If this option is non-nil, the
+outermost #if is always visible."
   :type 'boolean
   :version "25.1")
 
@@ -162,7 +162,7 @@ This behavior is generally undesirable.  If this option is non-nil, the outermos
   "\\.h\\(h\\|xx\\|pp\\|\\+\\+\\)?\\'"
   "C/C++ header file name patterns to determine if current buffer is a header.
 Effective only if `hide-ifdef-expand-reinclusion-protection' is t."
-  :type 'string
+  :type 'regexp
   :version "25.1")
 
 (defvar hide-ifdef-mode-submap
@@ -301,18 +301,18 @@ Several variables affect how the hiding is done:
         ;; `hide-ifdef-env' is now a global variable.
         ;; We can still simulate the behavior of older hideif versions (i.e.
         ;; `hide-ifdef-env' being buffer local) by clearing this variable
-        ;; (C-c @ C) everytime before hiding current buffer.
-;;      (set (make-local-variable 'hide-ifdef-env)
+        ;; (C-c @ C) every time before hiding current buffer.
+;;      (setq-local hide-ifdef-env
 ;;           (default-value 'hide-ifdef-env))
-        (set 'hide-ifdef-env (default-value 'hide-ifdef-env))
+        (setq hide-ifdef-env (default-value 'hide-ifdef-env))
         ;; Some C/C++ headers might have other ways to prevent reinclusion and
         ;; thus would like `hide-ifdef-expand-reinclusion-protection' to be nil.
-        (set (make-local-variable 'hide-ifdef-expand-reinclusion-protection)
-             (default-value 'hide-ifdef-expand-reinclusion-protection))
-        (set (make-local-variable 'hide-ifdef-hiding)
-             (default-value 'hide-ifdef-hiding))
-        (set (make-local-variable 'hif-outside-read-only) buffer-read-only)
-        (set (make-local-variable 'line-move-ignore-invisible) t)
+        (setq-local hide-ifdef-expand-reinclusion-protection
+                    (default-value 'hide-ifdef-expand-reinclusion-protection))
+        (setq-local hide-ifdef-hiding
+                    (default-value 'hide-ifdef-hiding))
+        (setq-local hif-outside-read-only buffer-read-only)
+        (setq-local line-move-ignore-invisible t)
         (add-hook 'change-major-mode-hook
                   (lambda () (hide-ifdef-mode -1)) nil t)
 
@@ -1490,7 +1490,7 @@ Refer to `hide-ifdef-expand-reinclusion-protection' for more details."
          (test (hif-canonicalize hif-ifx-regexp))
          (range (hif-find-range))
          (elifs (hif-range-elif range))
-         (if-part t) ; Everytime we start from if-part
+         (if-part t) ; Every time we start from if-part
          (complete nil))
     ;; (message "test = %s" test) (sit-for 1)
 
@@ -1650,7 +1650,7 @@ first arg will be `hif-etc'."
 ;; postponed the evaluation process one stage and store the "parsed tree"
 ;; into symbol database. The evaluation process was then "strings -> tokens
 ;; -> [parsed tree] -> value". Hideif therefore run slower since it need to
-;; evaluate the parsed tree everytime when trying to expand the symbol. These
+;; evaluate the parsed tree every time when trying to expand the symbol. These
 ;; temporarily code changes are obsolete and not in Emacs source repository.
 ;;
 ;; Furthermore, CPP did allow partial expression to be defined in several
@@ -1659,7 +1659,7 @@ first arg will be `hif-etc'."
 ;; further, otherwise those partial expression will be fail on parsing and
 ;; we'll miss all macros that reference it. The evaluation process thus
 ;; became "strings -> [tokens] -> parsed tree -> value." This degraded the
-;; performance since we need to parse tokens and evaluate them everytime
+;; performance since we need to parse tokens and evaluate them every time
 ;; when that symbol is referenced.
 ;;
 ;; In real cases I found a lot portion of macros are "simple macros" that
@@ -1792,7 +1792,7 @@ It does not do the work that's pointless to redo on a recursive entry."
 (defun hide-ifdef-toggle-shadowing ()
   "Toggle shadowing."
   (interactive)
-  (set (make-local-variable 'hide-ifdef-shadow) (not hide-ifdef-shadow))
+  (setq-local hide-ifdef-shadow (not hide-ifdef-shadow))
   (message "Shadowing %s" (if hide-ifdef-shadow "ON" "OFF"))
   (save-restriction
     (widen)

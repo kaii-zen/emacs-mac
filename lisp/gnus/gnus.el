@@ -292,6 +292,10 @@ is restarted, and sometimes reloaded."
   :link '(custom-manual "(gnus)Exiting Gnus")
   :group 'gnus)
 
+(defgroup gnus-dbus nil
+  "D-Bus integration for Gnus."
+  :group 'gnus)
+
 (defconst gnus-version-number "5.13"
   "Version number for this version of Gnus.")
 
@@ -305,34 +309,29 @@ be set in `.emacs' instead."
   :group 'gnus-start
   :type 'boolean)
 
-(defvar gnus-mode-line-image-cache t)
-
-(eval-and-compile
-  (if (fboundp 'find-image)
-      (defun gnus-mode-line-buffer-identification (line)
-	(let ((str (car-safe line))
-	      (load-path (append (mm-image-load-path) load-path)))
-	  (if (and (display-graphic-p)
-		   (stringp str)
-		   (string-match "^Gnus:" str))
-	      (progn (add-text-properties
-		      0 5
-		      (list 'display
-			    (if (eq t gnus-mode-line-image-cache)
-				(setq gnus-mode-line-image-cache
-				      (find-image
-				       '((:type xpm :file "gnus-pointer.xpm"
-						:ascent center)
-					 (:type xbm :file "gnus-pointer.xbm"
-						:ascent center))))
-			      gnus-mode-line-image-cache)
-			    'help-echo (format
-					"This is %s, %s."
-					gnus-version (gnus-emacs-version)))
-		      str)
-		     (list str))
-	    line)))
-    (defalias 'gnus-mode-line-buffer-identification 'identity)))
+(defun gnus-mode-line-buffer-identification (line)
+  (let ((str (car-safe line)))
+    (if (or (not (fboundp 'find-image))
+	    (not (display-graphic-p))
+	    (not (stringp str))
+	    (not (string-match "^Gnus:" str)))
+	line
+      (let ((load-path (append (mm-image-load-path) load-path)))
+	;; Add the Gnus logo.
+	(add-text-properties
+	 0 5
+	 (list 'display
+	       (find-image
+		'((:type xpm :file "gnus-pointer.xpm"
+			 :ascent center)
+		  (:type xbm :file "gnus-pointer.xbm"
+			 :ascent center))
+		t)
+	       'help-echo (format
+			   "This is %s, %s."
+			   gnus-version (gnus-emacs-version)))
+	 str)
+	(list str)))))
 
 ;; We define these group faces here to avoid the display
 ;; update forced when creating new faces.
@@ -660,7 +659,7 @@ be used directly.")
 (defun gnus-add-buffer ()
   "Add the current buffer to the list of Gnus buffers."
   (gnus-prune-buffers)
-  (push (current-buffer) gnus-buffers))
+  (cl-pushnew (current-buffer) gnus-buffers))
 
 (defmacro gnus-kill-buffer (buffer)
   "Kill BUFFER and remove from the list of Gnus buffers."
@@ -849,12 +848,6 @@ be used directly.")
           (cons (car list) (list :type type :data data)))
        list)))
 
-(let ((command (format "%s" this-command)))
-  (when (string-match "gnus" command)
-    (if (eq 'gnus-other-frame this-command)
-	(gnus-get-buffer-create gnus-group-buffer)
-      (gnus-splash))))
-
 ;;; Do the rest.
 
 (require 'gnus-util)
@@ -1029,8 +1022,7 @@ Check the NNTPSERVER environment variable and the
 
 ;; `M-x customize-variable RET gnus-select-method RET' should work without
 ;; starting or even loading Gnus.
-;;;###autoload(when (fboundp 'custom-autoload)
-;;;###autoload  (custom-autoload 'gnus-select-method "gnus"))
+;;;###autoload(custom-autoload 'gnus-select-method "gnus")
 
 (defcustom gnus-select-method
   (list 'nntp (or (gnus-getenv-nntpserver)
@@ -1203,7 +1195,7 @@ Also see `gnus-large-ephemeral-newsgroup'."
 		 integer))
 
 (defcustom gnus-use-long-file-name (not (memq system-type '(usg-unix-v)))
-  "Non-nil means that the default name of a file to save articles in is the group name.
+  "Non-nil means that the default file name to save articles in is the group name.
 If it's nil, the directory form of the group name is used instead.
 
 If this variable is a list, and the list contains the element
@@ -1553,7 +1545,7 @@ Use with caution.")
    ("\\(^\\|:\\)soc.culture.vietnamese\\>" vietnamese-viqr)
    ("\\(^\\|:\\)\\(comp\\|rec\\|alt\\|sci\\|soc\\|news\\|gnu\\|bofh\\)\\>" iso-8859-1))
  :variable-document
- "Alist of regexps (to match group names) and default charsets to be used when reading."
+ "Alist of regexps (to match group names) and charsets to be used when reading."
  :variable-group gnus-charset
  :variable-type '(repeat (list (regexp :tag "Group")
 			       (symbol :tag "Charset")))
@@ -1591,7 +1583,7 @@ posting an article."
  "Alist of group regexps and its initial input of the number of articles."
  :variable-group gnus-group-parameter
  :parameter-type '(choice :tag "Initial Input for Large Newsgroup"
-			  (const :tag "All" nil)
+			  (const :tag "All" 'all)
 			  (integer))
  :parameter-document "\
 
@@ -1610,7 +1602,7 @@ total number of articles in the group.")
  :variable-default (mapcar
                     (lambda (g) (list g t))
                     '("delayed$" "drafts$" "queue$" "INBOX$"
-                      "^nnmairix:" "^nnir:" "archive"))
+                      "^nnmairix:" "^nnselect:" "archive"))
  :variable-document
  "Groups in which the registry should be turned off."
  :variable-group gnus-registry
@@ -1626,7 +1618,8 @@ total number of articles in the group.")
 ;; group parameters for spam processing added by Ted Zlatanov <tzz@lifelogs.com>
 (defcustom gnus-install-group-spam-parameters t
   "Disable the group parameters for spam detection.
-Enable if `G c' in XEmacs is giving you trouble, and make sure to submit a bug report."
+Enable if `G c' in XEmacs is giving you trouble, and make sure to
+submit a bug report."
   :version "22.1"
   :type 'boolean
   :group 'gnus-start)
@@ -2226,8 +2219,8 @@ Disabling the agent may result in noticeable loss of performance."
   :group 'gnus-start
   :type '(choice (function-item gnus)
 		 (function-item gnus-no-server)
-		 (function-item gnus-slave)
-		 (function-item gnus-slave-no-server)))
+		 (function-item gnus-child)
+		 (function-item gnus-child-no-server)))
 
 (declare-function gnus-group-get-new-news "gnus-group")
 
@@ -2238,8 +2231,8 @@ Disabling the agent may result in noticeable loss of performance."
   :type '(choice (function-item gnus)
 		 (function-item gnus-group-get-new-news)
 		 (function-item gnus-no-server)
-		 (function-item gnus-slave)
-		 (function-item gnus-slave-no-server)))
+		 (function-item gnus-child)
+		 (function-item gnus-child-no-server)))
 
 (defcustom gnus-other-frame-parameters nil
   "Frame parameters used by `gnus-other-frame' to create a Gnus frame."
@@ -2287,6 +2280,14 @@ a string, be sure to use a valid format, see RFC 2616."
       (customize-save-variable 'gnus-user-agent gnus-user-agent)
     (gnus-message 1 "Edit your init file to make this change permanent.")
     (sit-for 2)))
+
+(defcustom gnus-agent-eagerly-store-articles t
+  "If non-nil, cache articles eagerly.
+
+When using the Gnus Agent and reading an agentized newsgroup,
+automatically cache the article in the agent cache."
+  :type 'boolean
+  :version "28.1")
 
 
 ;;; Internal variables
@@ -2417,8 +2418,8 @@ such as a mark that says whether an article is stored in the cache
 (defvar gnus-article-buffer "*Article*")
 (defvar gnus-server-buffer "*Server*")
 
-(defvar gnus-slave nil
-  "Whether this Gnus is a slave or not.")
+(defvar gnus-child nil
+  "Whether this Gnus is a child or not.")
 
 (defvar gnus-batch-mode nil
   "Whether this Gnus is running in batch mode or not.")
@@ -2708,6 +2709,11 @@ with some simple extensions.
 %k          Pretty-printed version of the above (string)
             For example, \"1.2k\" or \"0.4M\".
 %L          Number of lines in the article (integer)
+%Z          RSV of the article; nil if not in an nnselect group (integer)
+%G          Originating group name for the article; nil if not
+            in an nnselect group (string)
+%g          Short from  of the originating group name for the article;
+            nil if not in an nnselect group (string)
 %I          Indentation based on thread level (a string of
             spaces)
 %B          A complex trn-style thread tree (string)
@@ -3156,14 +3162,16 @@ that that variable is buffer-local to the summary buffers."
 
 (defun gnus-kill-ephemeral-group (group)
   "Remove ephemeral GROUP from relevant structures."
-  (remhash group gnus-newsrc-hashtb))
+  (remhash group gnus-newsrc-hashtb)
+  (setq gnus-newsrc-alist
+	(delq (assoc group gnus-newsrc-alist)
+              gnus-newsrc-alist)))
 
 (defun gnus-simplify-mode-line ()
   "Make mode lines a bit simpler."
   (setq mode-line-modified "--")
   (when (listp mode-line-format)
-    (make-local-variable 'mode-line-format)
-    (setq mode-line-format (copy-sequence mode-line-format))
+    (setq-local mode-line-format (copy-sequence mode-line-format))
     (when (equal (nth 3 mode-line-format) "   ")
       (setcar (nthcdr 3 mode-line-format) " "))))
 
@@ -3623,11 +3631,12 @@ If you call this function inside a loop, consider using the faster
 
 (defun gnus-group-get-parameter (group &optional symbol allow-list)
   "Return the group parameters for GROUP.
-If SYMBOL, return the value of that symbol in the group parameters.
-If ALLOW-LIST, also allow list as a result.
-Most functions should use `gnus-group-find-parameter', which
-also examines the topic parameters."
-  (let ((params (gnus-info-params (gnus-get-info group))))
+If SYMBOL, return the value of that symbol in the group
+parameters.  If ALLOW-LIST, also allow list as a result.  Most
+functions should use `gnus-group-find-parameter', which also
+examines the topic parameters.  GROUP can also be an info structure."
+  (let ((params (gnus-info-params (if (listp group) group
+				    (gnus-get-info group)))))
     (if symbol
 	(gnus-group-parameter-value params symbol allow-list)
       params)))
@@ -4034,13 +4043,20 @@ Allow completion over sensible values."
 ;;; User-level commands.
 
 ;;;###autoload
-(defun gnus-slave-no-server (&optional arg)
-  "Read network news as a slave, without connecting to the local server."
+(defun gnus-child-no-server (&optional arg)
+  "Read network news as a child, without connecting to the local server."
   (interactive "P")
   (gnus-no-server arg t))
 
 ;;;###autoload
-(defun gnus-no-server (&optional arg slave)
+(defun gnus-slave-no-server (&optional arg)
+  "Read network news as a child, without connecting to the local server."
+  (interactive "P")
+  (gnus-no-server arg t))
+(make-obsolete 'gnus-slave-no-server 'gnus-child-no-server "28.1")
+
+;;;###autoload
+(defun gnus-no-server (&optional arg child)
   "Read network news.
 If ARG is a positive number, Gnus will use that as the startup level.
 If ARG is nil, Gnus will be started at level 2.  If ARG is non-nil
@@ -4049,13 +4065,20 @@ an NNTP server to use.
 As opposed to `gnus', this command will not connect to the local
 server."
   (interactive "P")
-  (gnus-no-server-1 arg slave))
+  (gnus-no-server-1 arg child))
+
+;;;###autoload
+(defun gnus-child (&optional arg)
+  "Read news as a child."
+  (interactive "P")
+  (gnus arg nil 'child))
 
 ;;;###autoload
 (defun gnus-slave (&optional arg)
-  "Read news as a slave."
+  "Read news as a child."
   (interactive "P")
-  (gnus arg nil 'slave))
+  (gnus arg nil 'child))
+(make-obsolete 'gnus-slave 'gnus-child "28.1")
 
 (defun gnus-delete-gnus-frame ()
   "Delete gnus frame unless it is the only one.
@@ -4116,7 +4139,7 @@ current display is used."
   (add-hook 'gnus-suspend-gnus-hook #'gnus-delete-gnus-frame)))))
 
 ;;;###autoload
-(defun gnus (&optional arg dont-connect slave)
+(defun gnus (&optional arg dont-connect child)
   "Read network news.
 If ARG is non-nil and a positive number, Gnus will use that as the
 startup level.  If ARG is non-nil and not a positive number, Gnus will
@@ -4126,11 +4149,12 @@ prompt the user for the name of an NNTP server to use."
   ;; file.
   (unless (string-match "^Gnus" gnus-version)
     (load "gnus-load" nil t))
-  (unless (byte-code-function-p (symbol-function 'gnus))
-    (message "You should byte-compile Gnus")
+  (unless (or (byte-code-function-p (symbol-function 'gnus))
+	      (subr-native-elisp-p (symbol-function 'gnus)))
+    (message "You should compile Gnus")
     (sit-for 2))
   (let ((gnus-action-message-log (list nil)))
-    (gnus-1 arg dont-connect slave)
+    (gnus-1 arg dont-connect child)
     (gnus-final-warning)))
 
 (declare-function debbugs-gnu "ext:debbugs-gnu"

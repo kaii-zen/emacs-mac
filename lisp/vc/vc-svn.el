@@ -51,8 +51,8 @@
   :group 'vc-svn)
 
 ;; Might be nice if svn defaulted to non-interactive if stdin not tty.
-;; http://svn.haxx.se/dev/archive-2008-05/0762.shtml
-;; http://svn.haxx.se/dev/archive-2009-04/0094.shtml
+;; https://svn.haxx.se/dev/archive-2008-05/0762.shtml
+;; https://svn.haxx.se/dev/archive-2009-04/0094.shtml
 ;; Maybe newer ones do?
 (defcustom vc-svn-global-switches (unless (eq system-type 'darwin) ; bug#13513
                                     '("--non-interactive"))
@@ -548,7 +548,7 @@ or svn+ssh://."
 
 (define-derived-mode vc-svn-log-view-mode log-view-mode "SVN-Log-View"
   (require 'add-log)
-  (set (make-local-variable 'log-view-per-file-logs) nil))
+  (setq-local log-view-per-file-logs nil))
 
 (autoload 'vc-setup-buffer "vc-dispatcher")
 
@@ -816,7 +816,14 @@ Set file properties accordingly.  If FILENAME is non-nil, return its status."
           (push (match-string 1 loglines) vc-svn-revisions)
           (setq start (+ start (match-end 0)))
           (setq loglines (buffer-substring-no-properties start (point-max)))))
-    vc-svn-revisions)))
+      vc-svn-revisions)))
+
+(defun vc-svn-repository-url (file-or-dir &optional _remote-name)
+  (let ((default-directory (vc-svn-root file-or-dir)))
+    (with-temp-buffer
+      (vc-svn-command (current-buffer) 0 nil
+                      "info" "--show-item" "repos-root-url")
+      (buffer-substring-no-properties (point-min) (1- (point-max))))))
 
 (provide 'vc-svn)
 

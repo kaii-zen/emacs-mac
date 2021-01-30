@@ -1,4 +1,4 @@
-;;; korea-util.el --- utilities for Korean
+;;; korea-util.el --- utilities for Korean  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1997, 1999, 2001-2021 Free Software Foundation, Inc.
 ;; Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005, 2006,
@@ -45,8 +45,8 @@
     (activate-input-method
      (concat "korean-hangul" default-korean-keyboard))))
 
-(defun quail-hangul-switch-symbol-ksc (&rest ignore)
-  "Swith to/from Korean symbol package."
+(defun quail-hangul-switch-symbol-ksc (&rest _ignore)
+  "Switch to/from Korean symbol package."
   (interactive "i")
   (and current-input-method
        (if (string-equal current-input-method "korean-symbol")
@@ -54,8 +54,8 @@
 					  default-korean-keyboard))
 	 (activate-input-method "korean-symbol"))))
 
-(defun quail-hangul-switch-hanja (&rest ignore)
-  "Swith to/from Korean hanja package."
+(defun quail-hangul-switch-hanja (&rest _ignore)
+  "Switch to/from Korean hanja package."
   (interactive "i")
   (and current-input-method
        (if (string-match "korean-hanja" current-input-method)
@@ -70,27 +70,24 @@
   (interactive)
   (let ((overriding-terminal-local-map nil))
     (toggle-korean-input-method))
-  (setq isearch-input-method-function input-method-function
-	isearch-input-method-local-p t)
-  (setq input-method-function nil)
+  (setq isearch-input-method-function input-method-function)
+  (setq-local input-method-function nil)
   (isearch-update))
 
 (defun isearch-hangul-switch-symbol-ksc ()
   (interactive)
   (let ((overriding-terminal-local-map nil))
     (quail-hangul-switch-symbol-ksc))
-  (setq isearch-input-method-function input-method-function
-	isearch-input-method-local-p t)
-  (setq input-method-function nil)
+  (setq isearch-input-method-function input-method-function)
+  (setq-local input-method-function nil)
   (isearch-update))
 
 (defun isearch-hangul-switch-hanja ()
   (interactive)
   (let ((overriding-terminal-local-map nil))
     (quail-hangul-switch-hanja))
-  (setq isearch-input-method-function input-method-function
-	isearch-input-method-local-p t)
-  (setq input-method-function nil)
+  (setq isearch-input-method-function input-method-function)
+  (setq-local input-method-function nil)
   (isearch-update))
 
 ;; Information for setting and exiting Korean environment.

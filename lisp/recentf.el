@@ -245,7 +245,10 @@ The following values can be set:
 - A number
     Cleanup each time Emacs has been idle that number of seconds.
 - A time string
-    Cleanup at specified time string, for example at \"11:00pm\".
+    Cleanup at specified time string daily, for example at \"11:00pm\".
+
+If a time string is provided and it is already past the specified time
+for the current day, the first cleanup happens immediately as for `mode'.
 
 Setting this variable directly does not take effect;
 use \\[customize].
@@ -257,7 +260,7 @@ cleanup the list."
                         :value mode)
                 (const  :tag "Never"
                         :value never)
-                (number :tag "When idle that seconds"
+                (number :tag "When idle after (seconds)"
                         :value 300)
                 (string :tag "At time"
                         :value "11:00pm"))
@@ -277,6 +280,8 @@ If `file-name-history' is not empty, do nothing."
    "Normal hook run at end of loading the `recentf' package."
   :group 'recentf
   :type 'hook)
+(make-obsolete-variable 'recentf-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defcustom recentf-filename-handlers nil
   "Functions to post process recent file names.
@@ -369,7 +374,8 @@ See also the option `recentf-auto-cleanup'.")
              recentf-auto-cleanup t 'recentf-cleanup))
            ((stringp recentf-auto-cleanup)
             (run-at-time
-             recentf-auto-cleanup nil 'recentf-cleanup))))))
+             ;; Repeat every 24 hours.
+             recentf-auto-cleanup (* 24 60 60) 'recentf-cleanup))))))
 
 ;;; File functions
 ;;
@@ -1121,7 +1127,7 @@ IGNORE arguments."
   (unless recentf-list
     (error "The list of recent files is empty"))
   (recentf-dialog (format "*%s - Edit list*" recentf-menu-title)
-    (set (make-local-variable 'recentf-edit-list) nil)
+    (setq-local recentf-edit-list nil)
     (widget-insert
      (format-message
       "Click on OK to delete selected files from the recent list.
@@ -1190,8 +1196,8 @@ IGNORE other arguments."
 
 (defun recentf-open-files-items (files)
   "Return a list of widgets to display FILES in a dialog buffer."
-  (set (make-local-variable 'recentf--files-with-key)
-       (recentf-trunc-list files 10))
+  (setq-local recentf--files-with-key
+              (recentf-trunc-list files 10))
   (mapcar 'recentf-open-files-item
           (append
            ;; When requested group the files with shortcuts together
@@ -1287,7 +1293,8 @@ Write data into the file specified by `recentf-save-file'."
         (insert "\n\n;; Local Variables:\n"
                 (format ";; coding: %s\n" recentf-save-file-coding-system)
                 ";; End:\n")
-        (write-file (expand-file-name recentf-save-file))
+        (write-region (point-min) (point-max)
+                      (expand-file-name recentf-save-file))
         (when recentf-save-file-modes
           (set-file-modes recentf-save-file recentf-save-file-modes))
         nil)
@@ -1345,7 +1352,14 @@ That is, remove duplicates, non-kept, and excluded files."
 
 When Recentf mode is enabled, a \"Open Recent\" submenu is
 displayed in the \"File\" menu, containing a list of files that
-were operated on recently, in the most-recently-used order."
+were operated on recently, in the most-recently-used order.
+
+By default, only operations like opening a file, writing a buffer
+to a file, and killing a buffer is counted as \"operating\" on
+the file.  If instead you want to prioritize files that appear in
+buffers you switch to a lot, you can say something like the following:
+
+  (add-hook 'buffer-list-update-hook 'recentf-track-opened-file)"
   :global t
   :group 'recentf
   :keymap recentf-mode-map

@@ -1,3 +1,5 @@
+;;; diff-mode-tests.el --- Tests for diff-mode.el  -*- lexical-binding:t -*-
+
 ;; Copyright (C) 2017-2021 Free Software Foundation, Inc.
 
 ;; Author: Dima Kogan <dima@secretsauce.net>
@@ -20,11 +22,10 @@
 
 ;;; Code:
 
+(require 'ert)
+(require 'ert-x)
 (require 'diff-mode)
 (require 'diff)
-
-(defconst diff-mode-tests--datadir
-  (expand-file-name "test/data/vc/diff-mode" source-directory))
 
 (ert-deftest diff-mode-test-ignore-trailing-dashes ()
   "Check to make sure we successfully ignore trailing -- made by
@@ -204,9 +205,14 @@ youthfulness
 
 (ert-deftest diff-mode-test-font-lock ()
   "Check font-locking of diff hunks."
+  ;; See comments in diff-hunk-file-names about nonascii.
+  ;; In such cases, the diff-font-lock-syntax portion of this fails.
+  :expected-result (if (string-match-p "[[:nonascii:]]"
+                                       (ert-resource-directory))
+                       :failed :passed)
   (skip-unless (executable-find shell-file-name))
   (skip-unless (executable-find diff-command))
-  (let ((default-directory diff-mode-tests--datadir)
+  (let ((default-directory (ert-resource-directory))
         (old "hello_world.c")
         (new "hello_emacs.c")
         (diff-buffer (get-buffer-create "*Diff*"))
@@ -242,6 +248,7 @@ youthfulness
                  111 124 (face diff-context)
                  124 127 (face diff-context))))
 
+      ;; Test diff-font-lock-syntax.
       (should (equal (mapcar (lambda (o)
                                (list (- (overlay-start o) diff-beg)
                                      (- (overlay-end o) diff-beg)
@@ -265,9 +272,12 @@ youthfulness
 
 (ert-deftest diff-mode-test-font-lock-syntax-one-line ()
   "Check diff syntax highlighting for one line with no newline at end."
+  :expected-result (if (string-match-p "[[:nonascii:]]"
+                                       (ert-resource-directory))
+                       :failed :passed)
   (skip-unless (executable-find shell-file-name))
   (skip-unless (executable-find diff-command))
-  (let ((default-directory diff-mode-tests--datadir)
+  (let ((default-directory (ert-resource-directory))
         (old "hello_world_1.c")
         (new "hello_emacs_1.c")
         (diff-buffer (get-buffer-create "*Diff*"))

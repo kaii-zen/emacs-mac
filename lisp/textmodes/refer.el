@@ -249,9 +249,9 @@ found on the last `refer-find-entry' or `refer-find-next-entry'."
        (forward-paragraph 1)
        (setq end (point))
        (setq found
-             (refer-every (function (lambda (keyword)
-                                (goto-char begin)
-                                (re-search-forward keyword end t)))
+             (refer-every (lambda (keyword)
+                       (goto-char begin)
+                       (re-search-forward keyword end t))
                     keywords-list))
        (if (not found)
            (progn
@@ -336,9 +336,9 @@ found on the last `refer-find-entry' or `refer-find-next-entry'."
              (list (expand-file-name
                     (if (eq major-mode 'bibtex-mode)
                         (read-file-name
-                         (format ".bib file (default %s): "
-                                 (file-name-nondirectory
-                                  (buffer-file-name)))
+                         (format-prompt ".bib file"
+                                        (file-name-nondirectory
+                                         (buffer-file-name)))
                          (file-name-directory (buffer-file-name))
                          (file-name-nondirectory (buffer-file-name))
                          t)

@@ -83,7 +83,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "charset.h"
 #include "composite.h"
 #include "dispextern.h"
-#include "ptr-bounds.h"
 #include "regex-emacs.h"
 #include "sheap.h"
 #include "syntax.h"
@@ -388,7 +387,14 @@ terminate_due_to_signal (int sig, int backtrace_limit)
 
           totally_unblock_input ();
           if (sig == SIGTERM || sig == SIGHUP || sig == SIGINT)
-            Fkill_emacs (make_fixnum (sig));
+	    {
+	      /* Avoid abort in shut_down_emacs if we were interrupted
+		 by SIGINT in noninteractive usage, as in that case we
+		 don't care about the message stack.  */
+	      if (sig == SIGINT && noninteractive)
+		clear_message_stack ();
+	      Fkill_emacs (make_fixnum (sig));
+	    }
 
           shut_down_emacs (sig, Qnil);
           emacs_backtrace (backtrace_limit);
@@ -412,34 +418,28 @@ terminate_due_to_signal (int sig, int backtrace_limit)
   /* This shouldn't be executed, but it prevents a warning.  */
   exit (1);
 }
-
-/* Code for dealing with Lisp access to the Unix command line.  */
+
+/* Set `invocation-name' `invocation-directory'.  */
 
 static void
-init_cmdargs (int argc, char **argv, int skip_args, char const *original_pwd)
+set_invocation_vars (char *argv0, char const *original_pwd)
 {
-  int i;
-  Lisp_Object name, dir, handler;
-  ptrdiff_t count = SPECPDL_INDEX ();
-  Lisp_Object raw_name;
+  Lisp_Object raw_name, handler;
   AUTO_STRING (slash_colon, "/:");
 
-  initial_argv = argv;
-  initial_argc = argc;
-
 #ifdef WINDOWSNT
-  /* Must use argv[0] converted to UTF-8, as it begets many standard
+  /* Must use argv0 converted to UTF-8, as it begets many standard
      file and directory names.  */
   {
-    char argv0[MAX_UTF8_PATH];
+    char argv0_1[MAX_UTF8_PATH];
 
-    if (filename_from_ansi (argv[0], argv0) == 0)
-      raw_name = build_unibyte_string (argv0);
+    if (filename_from_ansi (argv0, argv0_1) == 0)
+      raw_name = build_unibyte_string (argv0_1);
     else
-      raw_name = build_unibyte_string (argv[0]);
+      raw_name = build_unibyte_string (argv0);
   }
 #else
-  raw_name = build_unibyte_string (argv[0]);
+  raw_name = build_unibyte_string (argv0);
 #endif
 
   /* Add /: to the front of the name
@@ -451,7 +451,7 @@ init_cmdargs (int argc, char **argv, int skip_args, char const *original_pwd)
   Vinvocation_name = Ffile_name_nondirectory (raw_name);
   Vinvocation_directory = Ffile_name_directory (raw_name);
 
-  /* If we got no directory in argv[0], search PATH to find where
+  /* If we got no directory in argv0, search PATH to find where
      Emacs actually came from.  */
   if (NILP (Vinvocation_directory))
     {
@@ -479,6 +479,38 @@ init_cmdargs (int argc, char **argv, int skip_args, char const *original_pwd)
 
       Vinvocation_directory = Fexpand_file_name (Vinvocation_directory, odir);
     }
+}
+
+/* Initialize a number of variables (ultimately
+   'Vinvocation_directory') needed by pdumper to complete native code
+   load.  */
+
+void
+init_vars_for_load (char *argv0, char const *original_pwd)
+{
+  /* This function is called from within pdumper while loading (as
+     soon as we are able to allocate) or later during boot if pdumper
+     is not used.  No need to run it twice.  */
+  static bool double_run_guard;
+  if (double_run_guard)
+    return;
+  double_run_guard = true;
+
+  init_callproc_1 ();	/* Must precede init_cmdargs and init_sys_modes.  */
+  set_invocation_vars (argv0, original_pwd);
+}
+
+
+/* Code for dealing with Lisp access to the Unix command line.  */
+static void
+init_cmdargs (int argc, char **argv, int skip_args, char const *original_pwd)
+{
+  int i;
+  Lisp_Object name, dir;
+  ptrdiff_t count = SPECPDL_INDEX ();
+
+  initial_argv = argv;
+  initial_argc = argc;
 
   Vinstallation_directory = Qnil;
 
@@ -783,7 +815,7 @@ load_pdump_find_executable (char const *argv0, ptrdiff_t *candidate_size)
 }
 
 static void
-load_pdump (int argc, char **argv)
+load_pdump (int argc, char **argv, char const *original_pwd)
 {
   const char *const suffix = ".pdmp";
   int result;
@@ -818,7 +850,7 @@ load_pdump (int argc, char **argv)
 
   if (dump_file)
     {
-      result = pdumper_load (dump_file);
+      result = pdumper_load (dump_file, argv[0], original_pwd);
 
       if (result != PDUMPER_LOAD_SUCCESS)
         fatal ("could not load dump file \"%s\": %s",
@@ -867,7 +899,7 @@ load_pdump (int argc, char **argv)
       if (bufsize < needed)
 	dump_file = xpalloc (dump_file, &bufsize, needed - bufsize, -1, 1);
       strcpy (dump_file + exenamelen, suffix);
-      result = pdumper_load (dump_file);
+      result = pdumper_load (dump_file, argv[0], original_pwd);
       if (result == PDUMPER_LOAD_SUCCESS)
         goto out;
 
@@ -898,7 +930,7 @@ load_pdump (int argc, char **argv)
     }
   sprintf (dump_file, "%s%c%s%s",
            path_exec, DIRECTORY_SEP, argv0_base, suffix);
-  result = pdumper_load (dump_file);
+  result = pdumper_load (dump_file, argv[0], original_pwd);
 
   if (result == PDUMPER_LOAD_FILE_NOT_FOUND)
     {
@@ -933,7 +965,7 @@ load_pdump (int argc, char **argv)
 #endif
       sprintf (dump_file, "%s%c%s%s",
 	       path_exec, DIRECTORY_SEP, argv0_base, suffix);
-      result = pdumper_load (dump_file);
+      result = pdumper_load (dump_file, argv[0], original_pwd);
     }
 
   if (result != PDUMPER_LOAD_SUCCESS)
@@ -958,8 +990,6 @@ emacs_main (int argc, char **argv)
   /* Variable near the bottom of the stack, and aligned appropriately
      for pointers.  */
   void *stack_bottom_variable;
-
-  bool do_initial_setlocale;
   bool no_loadup = false;
   char *junk = 0;
   char *dname_arg = 0;
@@ -1078,9 +1108,10 @@ emacs_main (int argc, char **argv)
   w32_init_main_thread ();
 #endif
 
+  emacs_wd = emacs_get_current_dir_name ();
 #ifdef HAVE_PDUMPER
   if (attempt_load_pdump)
-    load_pdump (argc, argv);
+    load_pdump (argc, argv, emacs_wd);
 #endif
 
   argc = maybe_disable_address_randomization (argc, argv);
@@ -1152,7 +1183,6 @@ emacs_main (int argc, char **argv)
       exit (0);
     }
 
-  emacs_wd = emacs_get_current_dir_name ();
 #ifdef HAVE_PDUMPER
   if (dumped_with_pdumper_p ())
     pdumper_record_wd (emacs_wd);
@@ -1264,19 +1294,21 @@ emacs_main (int argc, char **argv)
   set_binary_mode (STDOUT_FILENO, O_BINARY);
 #endif /* MSDOS */
 
-  /* Skip initial setlocale if LC_ALL is "C", as it's not needed in that case.
-     The build procedure uses this while dumping, to ensure that the
-     dumped Emacs does not have its system locale tables initialized,
-     as that might cause screwups when the dumped Emacs starts up.  */
-  {
-    char *lc_all = getenv ("LC_ALL");
-    do_initial_setlocale = ! lc_all || strcmp (lc_all, "C");
-  }
-
-  /* Set locale now, so that initial error messages are localized properly.
-     fixup_locale must wait until later, since it builds strings.  */
-  if (do_initial_setlocale)
-    setlocale (LC_ALL, "");
+  /* Set locale, so that initial error messages are localized properly.
+     However, skip this if LC_ALL is "C", as it's not needed in that case.
+     Skipping helps if dumping with unexec, to ensure that the dumped
+     Emacs does not have its system locale tables initialized, as that
+     might cause screwups when the dumped Emacs starts up.  */
+  char *lc_all = getenv ("LC_ALL");
+  if (! (lc_all && strcmp (lc_all, "C") == 0))
+    {
+      #ifdef HAVE_NS
+        ns_pool = ns_alloc_autorelease_pool ();
+        ns_init_locale ();
+      #endif
+      setlocale (LC_ALL, "");
+      fixup_locale ();
+    }
   text_quoting_flag = using_utf8 ();
 
   inhibit_window_system = 0;
@@ -1289,12 +1321,12 @@ emacs_main (int argc, char **argv)
 	{
 	  emacs_close (STDIN_FILENO);
 	  emacs_close (STDOUT_FILENO);
-	  int result = emacs_open (term, O_RDWR, 0);
+	  int result = emacs_open_noquit (term, O_RDWR, 0);
 	  if (result != STDIN_FILENO
 	      || (fcntl (STDIN_FILENO, F_DUPFD_CLOEXEC, STDOUT_FILENO)
 		  != STDOUT_FILENO))
 	    {
-	      char *errstring = strerror (errno);
+	      const char *errstring = strerror (errno);
 	      fprintf (stderr, "%s: %s: %s\n", argv[0], term, errstring);
 	      exit (EXIT_FAILURE);
 	    }
@@ -1557,6 +1589,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   if (!initialized)
     {
       init_alloc_once ();
+      init_pdumper_once ();
       init_obarray_once ();
       init_eval_once ();
       init_charset_once ();
@@ -1605,14 +1638,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   init_alloc ();
   init_bignum ();
   init_threads ();
-
-  if (do_initial_setlocale)
-    {
-      fixup_locale ();
-      Vsystem_messages_locale = Vprevious_system_messages_locale;
-      Vsystem_time_locale = Vprevious_system_time_locale;
-    }
-
   init_eval ();
   init_atimer ();
   running_asynch_code = 0;
@@ -1626,6 +1651,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #if defined HAVE_JSON && !defined WINDOWSNT
   init_json ();
 #endif
+
+  if (!initialized)
+    syms_of_comp ();
 
   no_loadup
     = argmatch (argv, argc, "-nl", "--no-loadup", 6, NULL, &skip_args);
@@ -1649,12 +1677,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif
 
 #ifdef HAVE_NS
-  ns_pool = ns_alloc_autorelease_pool ();
-#ifdef NS_IMPL_GNUSTEP
-  /* GNUstep stupidly resets our locale settings after we made them.  */
-  fixup_locale ();
-#endif
-
   if (!noninteractive)
     {
 #ifdef NS_IMPL_COCOA
@@ -1828,7 +1850,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   /* Init buffer storage and default directory of main buffer.  */
   init_buffer ();
 
-  init_callproc_1 ();	/* Must precede init_cmdargs and init_sys_modes.  */
+  init_vars_for_load (argv[0], original_pwd);
 
   /* Must precede init_lread.  */
   init_cmdargs (argc, argv, skip_args, original_pwd);
@@ -1922,7 +1944,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_xfns ();
       syms_of_xmenu ();
       syms_of_fontset ();
-      syms_of_xwidget ();
       syms_of_xsettings ();
 #ifdef HAVE_X_SM
       syms_of_xsmfns ();
@@ -2008,6 +2029,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif /* HAVE_W32NOTIFY */
 #endif /* WINDOWSNT */
 
+      syms_of_xwidget ();
       syms_of_threads ();
       syms_of_profiler ();
       syms_of_pdumper ();
@@ -2016,12 +2038,12 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_json ();
 #endif
 
-      keys_of_casefiddle ();
-      keys_of_cmds ();
-      keys_of_buffer ();
       keys_of_keyboard ();
-      keys_of_keymap ();
-      keys_of_window ();
+
+#ifdef HAVE_NATIVE_COMP
+      /* Must be after the last defsubr has run.  */
+      hash_native_abi ();
+#endif
     }
   else
     {
@@ -2043,7 +2065,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   /* This calls putenv and so must precede init_process_emacs.  */
   init_timefns ();
 
-  /* This sets Voperating_system_release, which init_process_emacs uses.  */
   init_editfns ();
 
   /* These two call putenv.  */
@@ -2429,10 +2450,13 @@ all of which are called before Emacs is actually killed.  */
   /* Fsignal calls emacs_abort () if it sees that waiting_for_input is
      set.  */
   waiting_for_input = 0;
-  if (noninteractive)
-    safe_run_hooks (Qkill_emacs_hook);
-  else
-    run_hook (Qkill_emacs_hook);
+  if (!NILP (find_symbol_value (Qkill_emacs_hook)))
+    {
+      if (noninteractive)
+	safe_run_hooks (Qkill_emacs_hook);
+      else
+	call1 (Qrun_hook_query_error_with_timeout, Qkill_emacs_hook);
+    }
 
 #ifdef HAVE_X_WINDOWS
   /* Transfer any clipboards we own to the clipboard manager.  */
@@ -2454,6 +2478,10 @@ all of which are called before Emacs is actually killed.  */
       listfile = Fexpand_file_name (Vauto_save_list_file_name, Qnil);
       unlink (SSDATA (listfile));
     }
+
+#ifdef HAVE_NATIVE_COMP
+  eln_load_path_final_clean_up ();
+#endif
 
   if (FIXNUMP (arg))
     exit_code = (XFIXNUM (arg) < 0
@@ -2683,24 +2711,24 @@ synchronize_locale (int category, Lisp_Object *plocale, Lisp_Object desired_loca
   if (! EQ (*plocale, desired_locale))
     {
       *plocale = desired_locale;
-#ifdef WINDOWSNT
+      char const *locale_string
+	= STRINGP (desired_locale) ? SSDATA (desired_locale) : "";
+# ifdef WINDOWSNT
       /* Changing categories like LC_TIME usually requires specifying
 	 an encoding suitable for the new locale, but MS-Windows's
 	 'setlocale' will only switch the encoding when LC_ALL is
 	 specified.  So we ignore CATEGORY, use LC_ALL instead, and
 	 then restore LC_NUMERIC to "C", so reading and printing
 	 numbers is unaffected.  */
-      setlocale (LC_ALL, (STRINGP (desired_locale)
-			  ? SSDATA (desired_locale)
-			  : ""));
+      setlocale (LC_ALL, locale_string);
       fixup_locale ();
-#else  /* !WINDOWSNT */
-      setlocale (category, (STRINGP (desired_locale)
-			    ? SSDATA (desired_locale)
-			    : ""));
-#endif	/* !WINDOWSNT */
+# else	/* !WINDOWSNT */
+      setlocale (category, locale_string);
+# endif	/* !WINDOWSNT */
     }
 }
+
+static Lisp_Object Vprevious_system_time_locale;
 
 /* Set system time locale to match Vsystem_time_locale, if possible.  */
 void
@@ -2710,15 +2738,19 @@ synchronize_system_time_locale (void)
 		      Vsystem_time_locale);
 }
 
+# ifdef LC_MESSAGES
+static Lisp_Object Vprevious_system_messages_locale;
+# endif
+
 /* Set system messages locale to match Vsystem_messages_locale, if
    possible.  */
 void
 synchronize_system_messages_locale (void)
 {
-#ifdef LC_MESSAGES
+# ifdef LC_MESSAGES
   synchronize_locale (LC_MESSAGES, &Vprevious_system_messages_locale,
 		      Vsystem_messages_locale);
-#endif
+# endif
 }
 #endif /* HAVE_SETLOCALE */
 
@@ -2802,7 +2834,7 @@ decode_env_path (const char *evarname, const char *defalt, bool empty)
 	      }
 	  }
 	else if (cnv_result != 0 && d > path_utf8)
-	  d[-1] = '\0';	/* remove last semi-colon and NUL-terminate PATH */
+	  d[-1] = '\0';	/* remove last semi-colon and null-terminate PATH */
       } while (q);
       path_copy = path_utf8;
 #else  /* MSDOS */
@@ -2909,7 +2941,7 @@ from the parent process and its tty file descriptors.  */)
       int nfd;
 
       /* Get rid of stdin, stdout and stderr.  */
-      nfd = emacs_open ("/dev/null", O_RDWR, 0);
+      nfd = emacs_open_noquit ("/dev/null", O_RDWR, 0);
       err |= nfd < 0;
       err |= dup2 (nfd, STDIN_FILENO) < 0;
       err |= dup2 (nfd, STDOUT_FILENO) < 0;
@@ -2950,6 +2982,8 @@ syms_of_emacs (void)
   DEFSYM (Qrisky_local_variable, "risky-local-variable");
   DEFSYM (Qkill_emacs, "kill-emacs");
   DEFSYM (Qkill_emacs_hook, "kill-emacs-hook");
+  DEFSYM (Qrun_hook_query_error_with_timeout,
+	  "run-hook-query-error-with-timeout");
 
 #ifdef HAVE_UNEXEC
   defsubr (&Sdump_emacs);
@@ -3040,19 +3074,16 @@ build directory.  */);
   DEFVAR_LISP ("system-messages-locale", Vsystem_messages_locale,
 	       doc: /* System locale for messages.  */);
   Vsystem_messages_locale = Qnil;
-
-  DEFVAR_LISP ("previous-system-messages-locale",
-	       Vprevious_system_messages_locale,
-	       doc: /* Most recently used system locale for messages.  */);
+#ifdef LC_MESSAGES
   Vprevious_system_messages_locale = Qnil;
+  staticpro (&Vprevious_system_messages_locale);
+#endif
 
   DEFVAR_LISP ("system-time-locale", Vsystem_time_locale,
 	       doc: /* System locale for time.  */);
   Vsystem_time_locale = Qnil;
-
-  DEFVAR_LISP ("previous-system-time-locale", Vprevious_system_time_locale,
-	       doc: /* Most recently used system locale for time.  */);
   Vprevious_system_time_locale = Qnil;
+  staticpro (&Vprevious_system_time_locale);
 
   DEFVAR_LISP ("before-init-time", Vbefore_init_time,
 	       doc: /* Value of `current-time' before Emacs begins initialization.  */);
@@ -3102,7 +3133,18 @@ because they do not depend on external libraries and are always available.
 
 Also note that this is not a generic facility for accessing external
 libraries; only those already known by Emacs will be loaded.  */);
+#ifdef WINDOWSNT
+  /* We may need to load libgccjit when dumping before term/w32-win.el
+     defines `dynamic-library-alist`. This will fail if that variable
+     is empty, so add libgccjit-0.dll to it.  */
+  if (will_dump_p ())
+    Vdynamic_library_alist = list1 (list2 (Qgccjit,
+                                           build_string ("libgccjit-0.dll")));
+  else
+    Vdynamic_library_alist = Qnil;
+#else
   Vdynamic_library_alist = Qnil;
+#endif
   Fput (intern_c_string ("dynamic-library-alist"), Qrisky_local_variable, Qt);
 
 #ifdef WINDOWSNT

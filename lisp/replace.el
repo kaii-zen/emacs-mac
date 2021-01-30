@@ -126,6 +126,18 @@ This variable affects only `query-replace-regexp'."
   :type 'boolean
   :group 'matching)
 
+(defcustom query-replace-highlight-submatches t
+  "Whether to highlight regexp subexpressions during query replacement.
+The faces used to do the highlights are named `isearch-group-1',
+`isearch-group-2', etc.  (By default, only these 2 are defined.)
+When there are more matches than faces, then faces are reused from the
+beginning, in a cyclical manner, so the `isearch-group-1' face is
+isreused for the third match.  If you want to use more distinctive colors,
+you can define more of these faces using the same numbering scheme."
+  :type 'boolean
+  :group 'matching
+  :version "28.1")
+
 (defcustom query-replace-lazy-highlight t
   "Controls the lazy-highlighting during query replacements.
 When non-nil, all text in the buffer matching the current match
@@ -174,6 +186,21 @@ See `replace-regexp' and `query-replace-regexp-eval'.")
                         length)
              length)))))
 
+(defun query-replace-read-from-suggestions ()
+  "Return a list of standard suggestions for `query-replace-read-from'.
+By default, the list includes the active region, the identifier
+(a.k.a. \"tag\") at point (see Info node `(emacs) Identifier Search'),
+the last isearch string, and the last replacement regexp.
+`query-replace-read-from' appends the list returned
+by this function to the end of values available via
+\\<minibuffer-local-map>\\[next-history-element]."
+  (delq nil (list (when (use-region-p)
+                    (buffer-substring-no-properties
+                     (region-beginning) (region-end)))
+                  (find-tag-default)
+                  (car search-ring)
+                  (car (symbol-value query-replace-from-history-variable)))))
+
 (defun query-replace-read-from (prompt regexp-flag)
   "Query and return the `from' argument of a query-replace operation.
 Prompt with PROMPT.  REGEXP-FLAG non-nil means the response should be a regexp.
@@ -208,12 +235,15 @@ wants to replace FROM with TO."
 	   (minibuffer-allow-text-properties t) ; separator uses text-properties
 	   (prompt
 	    (cond ((and query-replace-defaults separator)
-                   (format "%s (default %s): " prompt (car minibuffer-history)))
+                   (format-prompt prompt (car minibuffer-history)))
                   (query-replace-defaults
-                   (format "%s (default %s -> %s): " prompt
-                           (query-replace-descr (caar query-replace-defaults))
-                           (query-replace-descr (cdar query-replace-defaults))))
-                  (t (format "%s: " prompt))))
+                   (format-prompt
+                    prompt (format "%s -> %s"
+                                   (query-replace-descr
+                                    (caar query-replace-defaults))
+                                   (query-replace-descr
+                                    (cdar query-replace-defaults)))))
+                  (t (format-prompt prompt nil))))
 	   (from
 	    ;; The save-excursion here is in case the user marks and copies
 	    ;; a region in order to specify the minibuffer input.
@@ -227,7 +257,8 @@ wants to replace FROM with TO."
                 (if regexp-flag
                     (read-regexp prompt nil 'minibuffer-history)
                   (read-from-minibuffer
-                   prompt nil nil nil nil (car search-ring) t)))))
+                   prompt nil nil nil nil
+                   (query-replace-read-from-suggestions) t)))))
            (to))
       (if (and (zerop (length from)) query-replace-defaults)
 	  (cons (caar query-replace-defaults)
@@ -312,14 +343,15 @@ Prompt with PROMPT.  REGEXP-FLAG non-nil means the response should a regexp."
 (defun query-replace-read-args (prompt regexp-flag &optional noerror)
   (unless noerror
     (barf-if-buffer-read-only))
-  (let* ((from (query-replace-read-from prompt regexp-flag))
-	 (to (if (consp from) (prog1 (cdr from) (setq from (car from)))
-	       (query-replace-read-to from prompt regexp-flag))))
-    (list from to
-	  (or (and current-prefix-arg (not (eq current-prefix-arg '-)))
-              (and (plist-member (text-properties-at 0 from) 'isearch-regexp-function)
-                   (get-text-property 0 'isearch-regexp-function from)))
-	  (and current-prefix-arg (eq current-prefix-arg '-)))))
+  (save-mark-and-excursion
+    (let* ((from (query-replace-read-from prompt regexp-flag))
+           (to (if (consp from) (prog1 (cdr from) (setq from (car from)))
+                 (query-replace-read-to from prompt regexp-flag))))
+      (list from to
+            (or (and current-prefix-arg (not (eq current-prefix-arg '-)))
+                (and (plist-member (text-properties-at 0 from) 'isearch-regexp-function)
+                     (get-text-property 0 'isearch-regexp-function from)))
+            (and current-prefix-arg (eq current-prefix-arg '-))))))
 
 (defun query-replace (from-string to-string &optional delimited start end backward region-noncontiguous-p)
   "Replace some occurrences of FROM-STRING with TO-STRING.
@@ -757,6 +789,13 @@ which will run faster and will not set the mark or print anything."
 Maximum length of the history list is determined by the value
 of `history-length', which see.")
 
+(defvar occur-highlight-regexp t
+  "Regexp matching part of visited source lines to highlight temporarily.
+Highlight entire line if t; don't highlight source lines if nil.")
+
+(defvar occur-highlight-overlay nil
+  "Overlay used to temporarily highlight occur matches.")
+
 (defvar occur-collect-regexp-history '("\\1")
   "History of regexp for occur's collect operation")
 
@@ -786,13 +825,16 @@ the function that you set this to can check `this-command'."
 
 (defun read-regexp-suggestions ()
   "Return a list of standard suggestions for `read-regexp'.
-By default, the list includes the identifier (a.k.a. \"tag\")
-at point (see Info node `(emacs) Identifier Search'), the last
-isearch regexp, the last isearch string, and the last
+By default, the list includes the active region, the identifier
+(a.k.a. \"tag\") at point (see Info node `(emacs) Identifier Search'),
+the last isearch regexp, the last isearch string, and the last
 replacement regexp.  `read-regexp' appends the list returned
 by this function to the end of values available via
 \\<minibuffer-local-map>\\[next-history-element]."
   (list
+   (when (use-region-p)
+     (buffer-substring-no-properties
+      (region-beginning) (region-end)))
    (find-tag-default-as-regexp)
    (find-tag-default-as-symbol-regexp)
    (car regexp-search-ring)
@@ -850,13 +892,10 @@ If nil, use `regexp-history'."
 	 ;; Do not automatically add default to the history for empty input.
 	 (history-add-new-input nil)
 	 (input (read-from-minibuffer
-		 (cond ((string-match-p ":[ \t]*\\'" prompt)
-			prompt)
-		       ((and default (> (length default) 0))
-			 (format "%s (default %s): " prompt
-				 (query-replace-descr default)))
-		       (t
-			(format "%s: " prompt)))
+                 (if (string-match-p ":[ \t]*\\'" prompt)
+                     prompt
+                   (format-prompt prompt (and (length> default 0)
+                                              (query-replace-descr default))))
 		 nil nil nil (or history 'regexp-history) suggestions t)))
     (if (equal input "")
 	;; Return the default value when the user enters empty input.
@@ -890,7 +929,8 @@ and `search-upper-case' is non-nil, the matching is case-sensitive.
 Second and third arg RSTART and REND specify the region to operate on.
 This command operates on (the accessible part of) all lines whose
 accessible part is entirely contained in the region determined by RSTART
-and REND.  (A newline ending a line counts as part of that line.)
+and REND.  (A newline ending a line counts as part of that line.)  If RSTART
+is non-nil, REND also has to be given.
 
 Interactively, in Transient Mark mode when the mark is active, operate
 on all lines whose accessible part is entirely contained in the region.
@@ -1119,6 +1159,8 @@ a previously found match."
     (define-key map "\C-m" 'occur-mode-goto-occurrence)
     (define-key map "o" 'occur-mode-goto-occurrence-other-window)
     (define-key map "\C-o" 'occur-mode-display-occurrence)
+    (define-key map "n" 'next-error-no-select)
+    (define-key map "p" 'previous-error-no-select)
     (define-key map "\M-n" 'occur-next)
     (define-key map "\M-p" 'occur-prev)
     (define-key map "r" 'occur-rename-buffer)
@@ -1267,9 +1309,12 @@ If not invoked by a mouse click, go to occurrence on the current line."
            (with-current-buffer (window-buffer (posn-window (event-end event)))
              (save-excursion
                (goto-char (posn-point (event-end event)))
-               (occur-mode-find-occurrence))))))
+               (occur-mode-find-occurrence)))))
+        (regexp occur-highlight-regexp))
     (pop-to-buffer (marker-buffer pos))
     (goto-char pos)
+    (let ((end-mk (save-excursion (re-search-forward regexp nil t))))
+      (occur--highlight-occurrence pos end-mk))
     (when buffer (next-error-found buffer (current-buffer)))
     (run-hooks 'occur-mode-find-occurrence-hook)))
 
@@ -1283,17 +1328,74 @@ If not invoked by a mouse click, go to occurrence on the current line."
     (next-error-found buffer (current-buffer))
     (run-hooks 'occur-mode-find-occurrence-hook)))
 
+;; Stolen from compile.el
+(defun occur-goto-locus-delete-o ()
+  (delete-overlay occur-highlight-overlay)
+  ;; Get rid of timer and hook that would try to do this again.
+  (if (timerp next-error-highlight-timer)
+      (cancel-timer next-error-highlight-timer))
+  (remove-hook 'pre-command-hook
+               #'occur-goto-locus-delete-o))
+
+;; Highlight the current visited occurrence.
+;; Adapted from `compilation-goto-locus'.
+(defun occur--highlight-occurrence (mk end-mk)
+  (let ((highlight-regexp occur-highlight-regexp))
+    (if (timerp next-error-highlight-timer)
+        (cancel-timer next-error-highlight-timer))
+    (unless occur-highlight-overlay
+      (setq occur-highlight-overlay
+	    (make-overlay (point-min) (point-min)))
+      (overlay-put occur-highlight-overlay 'face 'next-error))
+    (with-current-buffer (marker-buffer mk)
+      (save-excursion
+        (if end-mk (goto-char end-mk) (end-of-line))
+        (let ((end (point)))
+	  (if mk (goto-char mk) (beginning-of-line))
+	  (if (and (stringp highlight-regexp)
+		   (re-search-forward highlight-regexp end t))
+	      (progn
+	        (goto-char (match-beginning 0))
+	        (move-overlay occur-highlight-overlay
+			      (match-beginning 0) (match-end 0)
+			      (current-buffer)))
+	    (move-overlay occur-highlight-overlay
+			  (point) end (current-buffer)))
+	  (if (or (eq next-error-highlight t)
+		  (numberp next-error-highlight))
+	      ;; We want highlighting: delete overlay on next input.
+	      (add-hook 'pre-command-hook
+		        #'occur-goto-locus-delete-o)
+	    ;; We don't want highlighting: delete overlay now.
+	    (delete-overlay occur-highlight-overlay))
+	  ;; We want highlighting for a limited time:
+	  ;; set up a timer to delete it.
+	  (when (numberp next-error-highlight)
+	    (setq next-error-highlight-timer
+		  (run-at-time next-error-highlight nil
+			       'occur-goto-locus-delete-o))))))
+    (when (eq next-error-highlight 'fringe-arrow)
+      ;; We want a fringe arrow (instead of highlighting).
+      (setq next-error-overlay-arrow-position
+	    (copy-marker (line-beginning-position))))))
+
 (defun occur-mode-display-occurrence ()
   "Display in another window the occurrence the current line describes."
   (interactive)
   (let ((buffer (current-buffer))
         (pos (occur-mode-find-occurrence))
+        (regexp occur-highlight-regexp)
+        (next-error-highlight next-error-highlight-no-select)
+        (display-buffer-overriding-action
+         '(nil (inhibit-same-window . t)))
 	window)
     (setq window (display-buffer (marker-buffer pos) t))
     ;; This is the way to set point in the proper window.
     (save-selected-window
       (select-window window)
       (goto-char pos)
+      (let ((end-mk (save-excursion (re-search-forward regexp nil t))))
+        (occur--highlight-occurrence pos end-mk))
       (next-error-found buffer (current-buffer))
       (run-hooks 'occur-mode-find-occurrence-hook))))
 
@@ -1424,7 +1526,7 @@ which means to discard all text properties."
 		;; Get the regexp for collection pattern.
 		(let ((default (car occur-collect-regexp-history)))
 		  (read-regexp
-		   (format "Regexp to collect (default %s): " default)
+		   (format-prompt "Regexp to collect" default)
 		   default 'occur-collect-regexp-history)))
 	    ;; Otherwise normal occur takes numerical prefix argument.
 	    (when current-prefix-arg
@@ -1506,6 +1608,19 @@ is not modified."
 
 (defvar ido-ignore-item-temp-list)
 
+(defun multi-occur--prompt ()
+  (concat
+   "Next buffer to search "
+   (cond
+    ((or (eq read-buffer-function #'ido-read-buffer)
+         (bound-and-true-p ido-everywhere))
+     (substitute-command-keys
+      "(\\<ido-completion-map>\\[ido-select-text] to end): "))
+    ((bound-and-true-p fido-mode)
+     (substitute-command-keys
+      "(\\<icomplete-fido-mode-map>\\[icomplete-fido-exit] to end): "))
+    (t "(RET to end): "))))
+
 (defun multi-occur (bufs regexp &optional nlines)
   "Show all lines in buffers BUFS containing a match for REGEXP.
 Optional argument NLINES specifies the number of context lines to show
@@ -1521,11 +1636,7 @@ See also `multi-occur-in-matching-buffers'."
 	   (buf nil)
 	   (ido-ignore-item-temp-list bufs))
       (while (not (string-equal
-		   (setq buf (read-buffer
-			      (if (eq read-buffer-function #'ido-read-buffer)
-				  "Next buffer to search (C-j to end): "
-				"Next buffer to search (RET to end): ")
-			      nil t))
+		   (setq buf (read-buffer (multi-occur--prompt) nil t))
 		   ""))
 	(cl-pushnew buf bufs)
 	(setq ido-ignore-item-temp-list bufs))
@@ -1589,7 +1700,8 @@ See also `multi-occur'."
                                          (and (overlayp boo)
                                               (overlay-buffer boo)))
                                  boo))
-			   bufs))))
+                           bufs)))
+        (source-buffer-default-directory default-directory))
     ;; Handle the case where one of the buffers we're searching is the
     ;; output buffer.  Just rename it.
     (when (member buf-name
@@ -1606,6 +1718,9 @@ See also `multi-occur'."
     (setq occur-buf (get-buffer-create buf-name))
 
     (with-current-buffer occur-buf
+      ;; Make the default-directory of the *Occur* buffer match that of
+      ;; the buffer where the occurrences come from
+      (setq default-directory source-buffer-default-directory)
       (if (stringp nlines)
 	  (fundamental-mode) ;; This is for collect operation.
 	(occur-mode))
@@ -1614,6 +1729,7 @@ See also `multi-occur'."
 	    (buffer-undo-list t)
 	    (occur--final-pos nil))
 	(erase-buffer)
+        (setq-local occur-highlight-regexp regexp)
 	(let ((count
 	       (if (stringp nlines)
                    ;; Treat nlines as a regexp to collect.
@@ -1950,10 +2066,8 @@ See also `multi-occur'."
       global-matches)))
 
 (defun occur-engine-line (beg end &optional keep-props)
-  (if (and keep-props (if (boundp 'jit-lock-mode) jit-lock-mode)
-	   (text-property-not-all beg end 'fontified t))
-      (if (fboundp 'jit-lock-fontify-now)
-	  (jit-lock-fontify-now beg end)))
+  (if (and keep-props font-lock-mode)
+      (font-lock-ensure beg end))
   (if (and keep-props (not (eq occur-excluded-properties t)))
       (let ((str (buffer-substring beg end)))
 	(remove-list-of-text-properties
@@ -2325,6 +2439,7 @@ It is called with three arguments, as if it were
     (funcall search-function search-string limit t)))
 
 (defvar replace-overlay nil)
+(defvar replace-submatches-overlays nil)
 
 (defun replace-highlight (match-beg match-end range-beg range-end
 			  search-string regexp-flag delimited-flag
@@ -2335,6 +2450,29 @@ It is called with three arguments, as if it were
 	(setq replace-overlay (make-overlay match-beg match-end))
 	(overlay-put replace-overlay 'priority 1001) ;higher than lazy overlays
 	(overlay-put replace-overlay 'face 'query-replace)))
+
+  (when (and query-replace-highlight-submatches regexp-flag)
+    (mapc 'delete-overlay replace-submatches-overlays)
+    (setq replace-submatches-overlays nil)
+    ;; 'cddr' removes whole expression match from match-data
+    (let ((submatch-data (cddr (match-data t)))
+          (group 0)
+          b e ov face)
+      (while submatch-data
+        (setq b (pop submatch-data)
+              e (pop submatch-data))
+        (when (and (integer-or-marker-p b)
+                   (integer-or-marker-p e))
+          (setq ov (make-overlay b e)
+                group (1+ group)
+                face (intern-soft (format "isearch-group-%d" group)))
+          ;; Recycle faces from beginning
+          (unless (facep face)
+            (setq group 1 face 'isearch-group-1))
+          (overlay-put ov 'face face)
+          (overlay-put ov 'priority 1002)
+          (push ov replace-submatches-overlays)))))
+
   (if query-replace-lazy-highlight
       (let ((isearch-string search-string)
 	    (isearch-regexp regexp-flag)
@@ -2355,6 +2493,9 @@ It is called with three arguments, as if it were
 (defun replace-dehighlight ()
   (when replace-overlay
     (delete-overlay replace-overlay))
+  (when query-replace-highlight-submatches
+    (mapc 'delete-overlay replace-submatches-overlays)
+    (setq replace-submatches-overlays nil))
   (when query-replace-lazy-highlight
     (lazy-highlight-cleanup lazy-highlight-cleanup)
     (setq isearch-lazy-highlight-last-string nil))
@@ -2884,6 +3025,8 @@ characters."
 			 (replace-dehighlight)
 			 (save-excursion (recursive-edit))
 			 (setq replaced t))
+                        ((commandp def t)
+                         (call-interactively def))
 			;; Note: we do not need to treat `exit-prefix'
 			;; specially here, since we reread
 			;; any unrecognized character.

@@ -227,7 +227,7 @@ supports it in developing GNU and promoting software freedom.''
 @c learn Emacs Lisp starting with the Emacs Lisp Reference Manual.
 @c
 @c        Richard Stallman <rms@gnu.org>,
-@c        https://lists.gnu.org/archive/html/emacs-devel/2018-05/msg00374.html
+@c        https://lists.gnu.org/r/emacs-devel/2018-05/msg00374.html
 
 @shortcontents
 @contents
@@ -929,7 +929,7 @@ GNU Emacs Lisp is largely inspired by Maclisp, which was written at MIT
 in the 1960s.  It is somewhat inspired by Common Lisp, which became a
 standard in the 1980s.  However, Emacs Lisp is much simpler than Common
 Lisp.  (The standard Emacs distribution contains an optional extensions
-file, @file{cl.el}, that adds many Common Lisp features to Emacs Lisp.)
+file, @file{cl-lib.el}, that adds many Common Lisp features to Emacs Lisp.)
 
 @node Note for Novices
 @unnumberedsec A Note for Novices
@@ -17523,7 +17523,7 @@ Here is the definition:
 ;;; Line to top of window;
 ;;; replace three keystroke sequence  C-u 0 C-l
 (defun line-to-top-of-window ()
-  "Move the line point is on to top of window."
+  "Move the line that point is on to top of window."
   (interactive)
   (recenter 0))
 @end group

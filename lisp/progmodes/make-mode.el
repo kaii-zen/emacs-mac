@@ -316,7 +316,7 @@ not be enclosed in { } or ( )."
 (defconst makefile-gmake-statements
   `("-sinclude" "sinclude"		; makefile-makepp-statements takes rest
     "ifdef" "ifndef" "ifeq" "ifneq" "-include" "define" "endef" "export"
-    "override define" "override" "unexport" "vpath"
+    "override define" "override" "unexport" "vpath" "undefine"
     ,@(cdr makefile-automake-statements))
   "List of keywords understood by gmake.")
 
@@ -343,8 +343,9 @@ not be enclosed in { } or ( )."
   "List of keywords understood by gmake.")
 
 (defconst makefile-bsdmake-statements
-  '(".elif" ".elifdef" ".elifmake" ".elifndef" ".elifnmake" ".else" ".endfor"
-    ".endif" ".for" ".if" ".ifdef" ".ifmake" ".ifndef" ".ifnmake" ".undef")
+  '("elif" "elifdef" "elifmake" "elifndef" "elifnmake" "else" "endfor"
+    "endif" "for" "if" "ifdef" "ifmake" "ifndef" "ifnmake" "poison"
+    "undef" "include")
   "List of keywords understood by BSD make.")
 
 (defun makefile-make-font-lock-keywords (var keywords space
@@ -376,8 +377,9 @@ not be enclosed in { } or ( )."
     ("[^$]\\(\\$[@%*]\\)"
      1 'makefile-targets append)
 
-    ;; Fontify conditionals and includes.
-    (,(concat "^\\(?: [ \t]*\\)?"
+    ,@(if keywords
+          ;; Fontify conditionals and includes.
+          `((,(concat "^\\(?: [ \t]*\\)?"
 	      (replace-regexp-in-string
 	       " " "[ \t]+"
 	       (if (eq (car keywords) t)
@@ -385,7 +387,7 @@ not be enclosed in { } or ( )."
                                              (regexp-opt (cdr keywords) t))
 		 (regexp-opt keywords t)))
 	      "\\>[ \t]*\\([^: \t\n#]*\\)")
-     (1 font-lock-keyword-face) (2 font-lock-variable-name-face))
+             (1 font-lock-keyword-face) (2 font-lock-variable-name-face))))
 
     ,@(if negation
 	  `((,negation (1 font-lock-negation-char-face prepend)
@@ -493,13 +495,17 @@ not be enclosed in { } or ( )."
      1 'makefile-makepp-perl t)))
 
 (defconst makefile-bsdmake-font-lock-keywords
-  (makefile-make-font-lock-keywords
-   ;; A lot more could be done for variables here:
-   makefile-var-use-regex
-   makefile-bsdmake-statements
-   t
-   "^\\(?: [ \t]*\\)?\\.\\(?:el\\)?if\\(n?\\)\\(?:def\\|make\\)?\\>[ \t]*\\(!?\\)"
-   '("^[ \t]*\\.for[ \t].+[ \t]\\(in\\)\\>" 1 font-lock-keyword-face)))
+  (append
+   (makefile-make-font-lock-keywords
+    ;; A lot more could be done for variables here:
+    makefile-var-use-regex
+    nil
+    t
+    "^\\(?: [ \t]*\\)?\\.\\(?:el\\)?if\\(n?\\)\\(?:def\\|make\\)?\\>[ \t]*\\(!?\\)"
+    '("^[ \t]*\\.for[ \t].+[ \t]\\(in\\)\\>" 1 font-lock-keyword-face))
+   `((,(concat "^\\. *" (regexp-opt makefile-bsdmake-statements) "\\>") 0
+      font-lock-keyword-face))))
+
 
 (defconst makefile-imake-font-lock-keywords
   (append
@@ -1370,13 +1376,11 @@ Fill comments, backslashed lines, and variable definitions specially."
     (goto-char (point-min))
     (erase-buffer)
     (mapconcat
-     (function
-      (lambda (item) (insert (makefile-browser-format-target-line (car item) nil) "\n")))
+     (lambda (item) (insert (makefile-browser-format-target-line (car item) nil) "\n"))
      targets
      "")
     (mapconcat
-     (function
-      (lambda (item) (insert (makefile-browser-format-macro-line (car item) nil) "\n")))
+     (lambda (item) (insert (makefile-browser-format-macro-line (car item) nil) "\n"))
      macros
      "")
     (sort-lines nil (point-min) (point-max))
@@ -1413,7 +1417,7 @@ Fill comments, backslashed lines, and variable definitions specially."
   "Leave the browser and return to the makefile buffer."
   (interactive)
   (let ((my-client makefile-browser-client))
-    (setq makefile-browser-client nil)	; we quitted, so NO client!
+    (setq makefile-browser-client nil)	; we quit, so NO client!
     (set-buffer-modified-p nil)
     (quit-window t)
     (pop-to-buffer my-client)))
@@ -1600,20 +1604,19 @@ Checks each target in TARGET-TABLE using
 and generates the overview, one line per target name."
   (insert
    (mapconcat
-    (function (lambda (item)
-		(let* ((target-name (car item))
-		       (no-prereqs (not (member target-name prereq-list)))
-		       (needs-rebuild (or no-prereqs
-					  (funcall
-					   makefile-query-one-target-method-function
-					   target-name
-					   filename))))
-		  (format "\t%s%s"
-			  target-name
-			  (cond (no-prereqs "  .. has no prerequisites")
-				(needs-rebuild "  .. NEEDS REBUILD")
-				(t "  .. is up to date"))))
-		))
+    (lambda (item)
+      (let* ((target-name (car item))
+             (no-prereqs (not (member target-name prereq-list)))
+             (needs-rebuild (or no-prereqs
+                                (funcall
+                                 makefile-query-one-target-method-function
+                                 target-name
+                                 filename))))
+        (format "\t%s%s"
+                target-name
+                (cond (no-prereqs "  .. has no prerequisites")
+                      (needs-rebuild "  .. NEEDS REBUILD")
+                      (t "  .. is up to date")))))
     target-table "\n"))
   (goto-char (point-min))
   (delete-file filename))		; remove the tmpfile
@@ -1687,9 +1690,9 @@ Then prompts for all required parameters."
 
 (defun makefile-prompt-for-gmake-funargs (function-name prompt-list)
   (mapconcat
-   (function (lambda (one-prompt)
-	       (read-string (format "[%s] %s: " function-name one-prompt)
-			    nil)))
+   (lambda (one-prompt)
+     (read-string (format "[%s] %s: " function-name one-prompt)
+                  nil))
    prompt-list
    ","))
 
@@ -1721,7 +1724,9 @@ matched in a rule action."
       (while (progn (skip-chars-forward makefile-dependency-skip bound)
 		    (< (point) (or bound (point-max))))
 	(forward-char)
-	(or (eq (char-after) ?=)
+        ;; The GNU immediate assignment operator is ":=", while the
+        ;; POSIX operator is "::=".
+	(or (looking-at ":?=")
 	    (get-text-property (1- (point)) 'face)
 	    (if (> (line-beginning-position) (+ (point-min) 2))
 		(eq (char-before (line-end-position 0)) ?\\))

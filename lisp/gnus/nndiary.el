@@ -597,7 +597,7 @@ all.  This may very well take some time.")
 
 (deffoo nndiary-request-move-article
     (article group server accept-form &optional last move-is-internal)
-  (let ((buf (get-buffer-create " *nndiary move*"))
+  (let ((buf (gnus-get-buffer-create " *nndiary move*"))
 	result)
     (nndiary-possibly-change-directory group server)
     (nndiary-update-file-alist)
@@ -831,7 +831,7 @@ all.  This may very well take some time.")
 
 ;; Find an article number in the current group given the Message-ID.
 (defun nndiary-find-group-number (id)
-  (with-current-buffer (get-buffer-create " *nndiary id*")
+  (with-current-buffer (gnus-get-buffer-create " *nndiary id*")
     (let ((alist nndiary-group-alist)
 	  number)
       ;; We want to look through all .overview files, but we want to
@@ -992,20 +992,20 @@ all.  This may very well take some time.")
 	(narrow-to-region
 	 (goto-char (point-min))
 	 (if (search-forward "\n\n" nil t) (1- (point)) (point-max))))
-      (let ((headers (nnheader-parse-naked-head)))
+      (let ((headers (nnheader-parse-head t)))
 	(setf (mail-header-chars  headers) chars)
 	(setf (mail-header-number headers) number)
 	headers))))
 
 (defun nndiary-open-nov (group)
   (or (cdr (assoc group nndiary-nov-buffer-alist))
-      (let ((buffer (get-buffer-create (format " *nndiary overview %s*"
-					       group))))
+      (let ((buffer (gnus-get-buffer-create
+                     (format " *nndiary overview %s*" group))))
 	(with-current-buffer buffer
-	  (set (make-local-variable 'nndiary-nov-buffer-file-name)
-	       (expand-file-name
-		nndiary-nov-file-name
-		(nnmail-group-pathname group nndiary-directory)))
+	  (setq-local nndiary-nov-buffer-file-name
+	              (expand-file-name
+		       nndiary-nov-file-name
+		       (nnmail-group-pathname group nndiary-directory)))
 	  (erase-buffer)
 	  (when (file-exists-p nndiary-nov-buffer-file-name)
 	    (nnheader-insert-file-contents nndiary-nov-buffer-file-name)))
@@ -1086,7 +1086,7 @@ all.  This may very well take some time.")
 (defun nndiary-generate-nov-file (dir files)
   (let* ((dir (file-name-as-directory dir))
 	 (nov (concat dir nndiary-nov-file-name))
-	 (nov-buffer (get-buffer-create " *nov*"))
+	 (nov-buffer (gnus-get-buffer-create " *nov*"))
 	 chars file headers)
     ;; Init the nov buffer.
     (with-current-buffer nov-buffer
@@ -1115,7 +1115,7 @@ all.  This may very well take some time.")
 	  (widen))
 	(setq files (cdr files)))
       (with-current-buffer nov-buffer
-	(nnmail-write-region 1 (point-max) nov nil 'nomesg)
+	(nnmail-write-region 1 (point-max) nov nil 'nomesg nil 'excl)
 	(kill-buffer (current-buffer))))))
 
 (defun nndiary-nov-delete-article (group article)
@@ -1425,7 +1425,7 @@ all.  This may very well take some time.")
 	(pop years)))
     (if years
 	;; Because we might not be limited in years, we must guard against
-	;; infinite loops. Appart from cases like Feb 31, there are probably
+	;; infinite loops. Apart from cases like Feb 31, there are probably
 	;; other ones, (no monday XXX 2nd etc). I don't know any algorithm to
 	;; decide this, so I assume that if we reach 10 years later, the
 	;; schedule is undecidable.

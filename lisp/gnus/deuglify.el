@@ -250,37 +250,41 @@
   :group 'gnus-outlook-deuglify)
 
 (defcustom gnus-outlook-deuglify-unwrap-stop-chars nil ;; ".?!" or nil
-  "Characters that inhibit unwrapping if they are the last one on the cited line above the possible wrapped line."
+  "Characters that, when at end of cited line, inhibit unwrapping.
+When one of these characters is the last one on the cited line
+above the possibly wrapped line, it disallows unwrapping."
   :version "22.1"
   :type '(radio (const :format "None  " nil)
 		(string :value ".?!"))
   :group 'gnus-outlook-deuglify)
 
 (defcustom gnus-outlook-deuglify-no-wrap-chars "`"
-  "Characters that inhibit unwrapping if they are the first one in the possibly wrapped line."
+  "Characters that, when at beginning of line, inhibit unwrapping.
+When one of these characters is the first one in the possibly
+wrapped line, it disallows unwrapping."
   :version "22.1"
   :type 'string
   :group 'gnus-outlook-deuglify)
 
 (defcustom  gnus-outlook-deuglify-attrib-cut-regexp
   "\\(On \\|Am \\)?\\(Mon\\|Tue\\|Wed\\|Thu\\|Fri\\|Sat\\|Sun\\),[^,]+, "
-  "Regular expression matching the beginning of an attribution line that should be cut off."
+  "Regexp matching beginning of attribution line that should be cut off."
   :version "22.1"
-  :type 'string
+  :type 'regexp
   :group 'gnus-outlook-deuglify)
 
 (defcustom gnus-outlook-deuglify-attrib-verb-regexp
   "wrote\\|writes\\|says\\|schrieb\\|schreibt\\|meinte\\|skrev\\|a écrit\\|schreef\\|escribió"
   "Regular expression matching the verb used in an attribution line."
   :version "22.1"
-  :type 'string
+  :type 'regexp
   :group 'gnus-outlook-deuglify)
 
 (defcustom  gnus-outlook-deuglify-attrib-end-regexp
   ": *\\|\\.\\.\\."
   "Regular expression matching the end of an attribution line."
   :version "22.1"
-  :type 'string
+  :type 'regexp
   :group 'gnus-outlook-deuglify)
 
 (defcustom gnus-outlook-display-hook nil
@@ -338,7 +342,7 @@ NODISPLAY is non-nil, don't redisplay the article buffer."
   (unless nodisplay (gnus-outlook-display-article-buffer)))
 
 (defun gnus-outlook-rearrange-article (attr-start)
-  "Put the text from ATTR-START to the end of buffer at the top of the article buffer."
+  "Put text from ATTR-START to the end of buffer at the top of the article buffer."
   ;; FIXME: 1.  (*) text/plain          ( ) text/html
   (let ((inhibit-read-only t)
 	(cite-marks gnus-outlook-deuglify-cite-marks))
@@ -403,9 +407,9 @@ NODISPLAY is non-nil, don't redisplay the article buffer."
     (gnus-with-article-buffer
       (article-goto-body)
       (when (re-search-forward
-	     (concat "^[" cite-marks " \t]*--* ?[^-]+ [^-]+ ?--*\\s *\n"
+	     (concat "^[" cite-marks " \t]*--*[^-]+ [^-]+--*\\s *\n"
 		     "[^\n:]+:[ \t]*\\([^\n]+\\)\n"
-		     "\\([^\n:]+:[ \t]*[^\n]+\n\\)+")
+		     "\\([^\n:]+:[^\n]+\n\\)+")
 	     nil t)
 	(gnus-kill-all-overlays)
 	(replace-match "\\1 wrote:\n")

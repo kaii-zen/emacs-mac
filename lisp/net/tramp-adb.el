@@ -57,15 +57,27 @@ It is used for TCP/IP devices."
   "When this method name is used, forward all calls to Android Debug Bridge.")
 
 ;;;###tramp-autoload
-(defcustom tramp-adb-prompt
-  "^[[:digit:]]*|?[[:alnum:]\e;[]*@?[[:alnum:]]*[^#\\$]*[#\\$][[:space:]]"
+(defcustom tramp-adb-prompt "^[^#$\n\r]*[#$][[:space:]]"
   "Regexp used as prompt in almquist shell."
   :type 'regexp
-  :version "24.4"
+  :version "28.1"
   :group 'tramp)
 
+(eval-and-compile
+  (defconst tramp-adb-ls-date-year-regexp
+    "[[:digit:]]\\{4\\}-[[:digit:]]\\{2\\}-[[:digit:]]\\{2\\}"
+    "Regexp for date year format in ls output."))
+
+(eval-and-compile
+  (defconst tramp-adb-ls-date-time-regexp
+    "[[:digit:]]\\{2\\}:[[:digit:]]\\{2\\}"
+  "Regexp for date time format in ls output."))
+
 (defconst tramp-adb-ls-date-regexp
-  "[[:space:]][0-9]\\{4\\}-[0-9][0-9]-[0-9][0-9][[:space:]][0-9][0-9]:[0-9][0-9][[:space:]]"
+  (concat
+   "[[:space:]]" tramp-adb-ls-date-year-regexp
+   "[[:space:]]" tramp-adb-ls-date-time-regexp
+   "[[:space:]]")
   "Regexp for date format in ls output.")
 
 (defconst tramp-adb-ls-toolbox-regexp
@@ -75,7 +87,8 @@ It is used for TCP/IP devices."
    "[[:space:]]*\\([^[:space:]]+\\)"	; \2 username
    "[[:space:]]+\\([^[:space:]]+\\)"	; \3 group
    "[[:space:]]+\\([[:digit:]]+\\)"	; \4 size
-   "[[:space:]]+\\([-[:digit:]]+[[:space:]][:[:digit:]]+\\)" ; \5 date
+   "[[:space:]]+\\(" tramp-adb-ls-date-year-regexp
+   "[[:space:]]" tramp-adb-ls-date-time-regexp "\\)" ; \5 date
    "[[:space:]]\\(.*\\)$")		; \6 filename
   "Regexp for ls output.")
 
@@ -83,8 +96,11 @@ It is used for TCP/IP devices."
 (tramp--with-startup
  (add-to-list 'tramp-methods
 	      `(,tramp-adb-method
-	        (tramp-tmpdir            "/data/local/tmp")
-                (tramp-default-port      5555)))
+                (tramp-login-program ,tramp-adb-program)
+                (tramp-login-args    (("shell")))
+                (tramp-direct-async  t)
+	        (tramp-tmpdir        "/data/local/tmp")
+                (tramp-default-port  5555)))
 
  (add-to-list 'tramp-default-host-alist `(,tramp-adb-method nil ""))
 
@@ -138,7 +154,7 @@ It is used for TCP/IP devices."
     (file-selinux-context . tramp-handle-file-selinux-context)
     (file-symlink-p . tramp-handle-file-symlink-p)
     (file-system-info . tramp-adb-handle-file-system-info)
-    (file-truename . tramp-adb-handle-file-truename)
+    (file-truename . tramp-handle-file-truename)
     (file-writable-p . tramp-adb-handle-file-writable-p)
     (find-backup-file-name . tramp-handle-find-backup-file-name)
     ;; `get-file-buffer' performed by default handler.
@@ -162,6 +178,8 @@ It is used for TCP/IP devices."
     (start-file-process . tramp-handle-start-file-process)
     (substitute-in-file-name . tramp-handle-substitute-in-file-name)
     (temporary-file-directory . tramp-handle-temporary-file-directory)
+    (tramp-get-remote-gid . ignore)
+    (tramp-get-remote-uid . ignore)
     (tramp-set-file-uid-gid . ignore)
     (unhandled-file-name-directory . ignore)
     (vc-registered . ignore)
@@ -183,10 +201,9 @@ It is used for TCP/IP devices."
   "Invoke the ADB handler for OPERATION.
 First arg specifies the OPERATION, second arg is a list of
 ARGUMENTS to pass to the OPERATION."
-  (let ((fn (assoc operation tramp-adb-file-name-handler-alist)))
-    (if fn
-	(save-match-data (apply (cdr fn) arguments))
-      (tramp-run-real-handler operation arguments))))
+  (if-let ((fn (assoc operation tramp-adb-file-name-handler-alist)))
+      (save-match-data (apply (cdr fn) arguments))
+    (tramp-run-real-handler operation arguments)))
 
 ;;;###tramp-autoload
 (tramp--with-startup
@@ -201,7 +218,7 @@ ARGUMENTS to pass to the OPERATION."
 	 (lambda (line)
 	   (when (string-match "^\\(\\S-+\\)[[:space:]]+device$" line)
 	     ;; Replace ":" by "#".
-	     `(nil ,(replace-regexp-in-string
+	     `(nil ,(tramp-compat-string-replace
 		     ":" tramp-prefix-port-format (match-string 1 line)))))
 	 (tramp-process-lines nil tramp-adb-program "devices"))))
 
@@ -216,11 +233,10 @@ ARGUMENTS to pass to the OPERATION."
 	(goto-char (point-min))
 	(forward-line)
 	(when (looking-at
-	       (eval-when-compile
-		 (concat "[[:space:]]*[^[:space:]]+"
-			 "[[:space:]]+\\([[:digit:]]+\\)"
-			 "[[:space:]]+\\([[:digit:]]+\\)"
-			 "[[:space:]]+\\([[:digit:]]+\\)")))
+	       (concat "[[:space:]]*[^[:space:]]+"
+		       "[[:space:]]+\\([[:digit:]]+\\)"
+		       "[[:space:]]+\\([[:digit:]]+\\)"
+		       "[[:space:]]+\\([[:digit:]]+\\)"))
 	  ;; The values are given as 1k numbers, so we must change
 	  ;; them to number of bytes.
 	  (list (* 1024 (string-to-number (match-string 1)))
@@ -229,105 +245,6 @@ ARGUMENTS to pass to the OPERATION."
 		(* 1024 (- (string-to-number (match-string 1))
 			   (string-to-number (match-string 2))))
 		(* 1024 (string-to-number (match-string 3)))))))))
-
-;; This is derived from `tramp-sh-handle-file-truename'.  Maybe the
-;; code could be shared?
-(defun tramp-adb-handle-file-truename (filename)
-  "Like `file-truename' for Tramp files."
-  ;; Preserve trailing "/".
-  (funcall
-   (if (tramp-compat-directory-name-p filename)
-       #'file-name-as-directory #'identity)
-   ;; Quote properly.
-   (funcall
-    (if (tramp-compat-file-name-quoted-p filename)
-	#'tramp-compat-file-name-quote #'identity)
-    (with-parsed-tramp-file-name
-	(tramp-compat-file-name-unquote (expand-file-name filename)) nil
-      (tramp-make-tramp-file-name
-       v
-       (with-tramp-file-property v localname "file-truename"
-	 (let (result)			; result steps in reverse order
-	   (tramp-message v 4 "Finding true name for `%s'" filename)
-	   (let* ((steps (split-string localname "/" 'omit))
-		  (localnamedir (tramp-run-real-handler
-				 'file-name-as-directory (list localname)))
-		  (is-dir (string= localname localnamedir))
-		  (thisstep nil)
-		  (numchase 0)
-		  ;; Don't make the following value larger than
-		  ;; necessary.  People expect an error message in a
-		  ;; timely fashion when something is wrong; otherwise
-		  ;; they might think that Emacs is hung.  Of course,
-		  ;; correctness has to come first.
-		  (numchase-limit 20)
-		  symlink-target)
-	     (while (and steps (< numchase numchase-limit))
-	       (setq thisstep (pop steps))
-	       (tramp-message
-		v 5 "Check %s"
-		(string-join
-		 (append '("") (reverse result) (list thisstep)) "/"))
-	       (setq symlink-target
-		     (tramp-compat-file-attribute-type
-		      (file-attributes
-		       (tramp-make-tramp-file-name
-			v
-			(string-join
-			 (append
-			  '("") (reverse result) (list thisstep)) "/")))))
-	       (cond ((string= "." thisstep)
-		      (tramp-message v 5 "Ignoring step `.'"))
-		     ((string= ".." thisstep)
-		      (tramp-message v 5 "Processing step `..'")
-		      (pop result))
-		     ((stringp symlink-target)
-		      ;; It's a symlink, follow it.
-		      (tramp-message v 5 "Follow symlink to %s" symlink-target)
-		      (setq numchase (1+ numchase))
-		      (when (file-name-absolute-p symlink-target)
-			(setq result nil))
-		      ;; If the symlink was absolute, we'll get a string
-		      ;; like "/user@host:/some/target"; extract the
-		      ;; "/some/target" part from it.
-		      (when (tramp-tramp-file-p symlink-target)
-			(unless (tramp-equal-remote filename symlink-target)
-			  (tramp-error
-			   v 'file-error
-			   "Symlink target `%s' on wrong host" symlink-target))
-			(setq symlink-target localname))
-		      (setq steps
-			    (append (split-string symlink-target "/" 'omit)
-				    steps)))
-		     (t
-		      ;; It's a file.
-		      (setq result (cons thisstep result)))))
-	     (when (>= numchase numchase-limit)
-	       (tramp-error
-		v 'file-error
-		"Maximum number (%d) of symlinks exceeded" numchase-limit))
-	     (setq result (reverse result))
-	     ;; Combine list to form string.
-	     (setq result
-		   (if result
-		       (string-join (cons "" result) "/")
-		     "/"))
-	     (when (and is-dir (or (string-empty-p result)
-				   (not (string= (substring result -1) "/"))))
-	       (setq result (concat result "/"))))
-
-	   ;; Detect cycle.
-	   (when (and (file-symlink-p filename)
-		      (string-equal result localname))
-	     (tramp-error
-	      v 'file-error
-	      "Apparent cycle of symbolic links for %s" filename))
-	   ;; If the resulting localname looks remote, we must quote it
-	   ;; for security reasons.
-	   (when (file-remote-p result)
-	     (setq result (tramp-compat-file-name-quote result 'top)))
-	   (tramp-message v 4 "True name of `%s' is `%s'" localname result)
-	   result)))))))
 
 (defun tramp-adb-handle-file-attributes (filename &optional id-format)
   "Like `file-attributes' for Tramp files."
@@ -372,7 +289,9 @@ ARGUMENTS to pass to the OPERATION."
 		 (if (eq id-format 'integer) 0 uid)
 		 (if (eq id-format 'integer) 0 gid)
 		 tramp-time-dont-know   ; atime
-		 (date-to-time date)	; mtime
+		 ;; `date-to-time' checks `iso8601-parse', which might fail.
+		 (let (signal-hook-function)
+		   (date-to-time date))	; mtime
 		 tramp-time-dont-know   ; ctime
 		 size
 		 mod-string
@@ -383,7 +302,7 @@ ARGUMENTS to pass to the OPERATION."
       file-properties)))
 
 (defun tramp-adb-handle-directory-files-and-attributes
-  (directory &optional full match nosort id-format _count)
+  (directory &optional full match nosort id-format count)
   "Like `directory-files-and-attributes' for Tramp files."
   (unless (file-exists-p directory)
     (tramp-error
@@ -393,8 +312,8 @@ ARGUMENTS to pass to the OPERATION."
     (with-parsed-tramp-file-name (expand-file-name directory) nil
       (copy-tree
        (with-tramp-file-property
-	   v localname (format "directory-files-and-attributes-%s-%s-%s-%s"
-			       full match id-format nosort)
+	   v localname (format "directory-files-and-attributes-%s-%s-%s-%s-%s"
+			       full match id-format nosort count)
 	 (with-current-buffer (tramp-get-buffer v)
 	   (when (tramp-adb-send-command-and-check
 		  v (format "%s -a -l %s"
@@ -424,11 +343,17 @@ ARGUMENTS to pass to the OPERATION."
 	     (unless nosort
 	       (setq result
 		     (sort result (lambda (x y) (string< (car x) (car y))))))
-	     (delq nil
-		   (mapcar (lambda (x)
-			     (if (or (not match) (string-match-p match (car x)))
-				 x))
-			   result)))))))))
+
+             (setq result (delq nil
+                                (mapcar
+                                 (lambda (x) (if (or (not match)
+                                                     (string-match-p
+                                                      match (car x)))
+                                                 x))
+                                 result)))
+	     (when (and (natnump count) (> count 0))
+	       (setq result (nbutlast result (- (length result) count))))
+             result)))))))
 
 (defun tramp-adb-get-ls-command (vec)
   "Determine `ls' command and its arguments."
@@ -439,7 +364,8 @@ ARGUMENTS to pass to the OPERATION."
      ;; by GNU Coreutils. Force "ls" to print one column and set
      ;; time-style to imitate other "ls" flavors.
      ((tramp-adb-send-command-and-check
-       vec "ls --time-style=long-iso /dev/null")
+       vec (concat "ls --time-style=long-iso "
+                   (tramp-get-remote-null-device vec)))
       "ls -1 --time-style=long-iso")
      ;; Can't disable coloring explicitly for toybox ls command.  We
      ;; also must force "ls" to print just one column.
@@ -447,24 +373,10 @@ ARGUMENTS to pass to the OPERATION."
      ;; On CyanogenMod based system BusyBox is used and "ls" output
      ;; coloring is enabled by default.  So we try to disable it when
      ;; possible.
-     ((tramp-adb-send-command-and-check vec "ls --color=never -al /dev/null")
+     ((tramp-adb-send-command-and-check
+       vec (concat "ls --color=never -al " (tramp-get-remote-null-device vec)))
       "ls --color=never")
      (t "ls"))))
-
-(defun tramp-adb--gnu-switches-to-ash (switches)
-  "Almquist shell can't handle multiple arguments.
-Convert (\"-al\") to (\"-a\" \"-l\").  Remove arguments like \"--dired\"."
-  (split-string
-   (apply #'concat
-	  (mapcar (lambda (s)
-		    (replace-regexp-in-string
-		     "\\(.\\)" " -\\1" (replace-regexp-in-string "^-" "" s)))
-		  ;; FIXME: Warning about removed switches (long and non-dash).
-		  (delq nil
-			(mapcar
-			 (lambda (s)
-			   (and (not (string-match-p "\\(^--\\|^[^-]\\)" s)) s))
-			 switches))))))
 
 (defun tramp-adb-sh-fix-ls-output (&optional sort-by-time)
   "Insert dummy 0 in empty size columns.
@@ -475,10 +387,16 @@ Emacs dired can't find files."
     (goto-char (point-min))
     (while
 	(search-forward-regexp
-	 "[[:space:]]\\([[:space:]][0-9]\\{4\\}-[0-9][0-9]-[0-9][0-9][[:space:]]\\)" nil t)
+	 (eval-when-compile
+	   (concat
+	    "[[:space:]]"
+	    "\\([[:space:]]" tramp-adb-ls-date-year-regexp "[[:space:]]\\)"))
+	 nil t)
       (replace-match "0\\1" "\\1" nil)
       ;; Insert missing "/".
-      (when (looking-at-p "[0-9][0-9]:[0-9][0-9][[:space:]]+$")
+      (when (looking-at-p
+	     (eval-when-compile
+	       (concat tramp-adb-ls-date-time-regexp "[[:space:]]+$")))
 	(end-of-line)
 	(insert "/")))
     ;; Sort entries.
@@ -528,27 +446,25 @@ Emacs dired can't find files."
 		(and parents (file-directory-p dir)))
       (tramp-error v 'file-error "Couldn't make directory %s" dir))))
 
-(defun tramp-adb-handle-delete-directory (directory &optional recursive _trash)
+(defun tramp-adb-handle-delete-directory (directory &optional recursive trash)
   "Like `delete-directory' for Tramp files."
-  (setq directory (expand-file-name directory))
-  (with-parsed-tramp-file-name (file-truename directory) nil
-    (tramp-flush-directory-properties v localname))
-  (with-parsed-tramp-file-name directory nil
-    (tramp-flush-directory-properties v localname)
+  (tramp-skeleton-delete-directory directory recursive trash
     (tramp-adb-barf-unless-okay
      v (format "%s %s"
 	       (if recursive "rm -r" "rmdir")
 	       (tramp-shell-quote-argument localname))
      "Couldn't delete %s" directory)))
 
-(defun tramp-adb-handle-delete-file (filename &optional _trash)
+(defun tramp-adb-handle-delete-file (filename &optional trash)
   "Like `delete-file' for Tramp files."
   (setq filename (expand-file-name filename))
   (with-parsed-tramp-file-name filename nil
     (tramp-flush-file-properties v localname)
-    (tramp-adb-barf-unless-okay
-     v (format "rm %s" (tramp-shell-quote-argument localname))
-     "Couldn't delete %s" filename)))
+    (if (and delete-by-moving-to-trash trash)
+	(move-file-to-trash filename)
+      (tramp-adb-barf-unless-okay
+       v (format "rm %s" (tramp-shell-quote-argument localname))
+       "Couldn't delete %s" filename))))
 
 (defun tramp-adb-handle-file-name-all-completions (filename directory)
   "Like `file-name-all-completions' for Tramp files."
@@ -589,9 +505,10 @@ Emacs dired can't find files."
       (with-tramp-progress-reporter
 	  v 3 (format "Fetching %s to tmp file %s" filename tmpfile)
 	;; "adb pull ..." does not always return an error code.
-	(when (or (tramp-adb-execute-adb-command
-		   v "pull" (tramp-compat-file-name-unquote localname) tmpfile)
-		  (not (file-exists-p tmpfile)))
+	(unless
+	    (and (tramp-adb-execute-adb-command
+		  v "pull" (tramp-compat-file-name-unquote localname) tmpfile)
+		 (file-exists-p tmpfile))
 	  (ignore-errors (delete-file tmpfile))
 	  (tramp-error
 	   v 'file-error "Cannot make local copy of file `%s'" filename))
@@ -644,8 +561,8 @@ But handle the case, if the \"test\" command is not available."
         v 3 (format-message
              "Moving tmp file `%s' to `%s'" tmpfile filename)
 	(unwind-protect
-	    (when (tramp-adb-execute-adb-command
-		   v "push" tmpfile (tramp-compat-file-name-unquote localname))
+	    (unless (tramp-adb-execute-adb-command
+		     v "push" tmpfile (tramp-compat-file-name-unquote localname))
 	      (tramp-error v 'file-error "Cannot write: `%s'" filename))
 	  (delete-file tmpfile)))
 
@@ -661,8 +578,9 @@ But handle the case, if the \"test\" command is not available."
       ;; Set file modification time.
       (when (or (eq visit t) (stringp visit))
 	(set-visited-file-modtime
-	 (tramp-compat-file-attribute-modification-time
-	  (file-attributes filename))))
+	 (or (tramp-compat-file-attribute-modification-time
+	      (file-attributes filename))
+	     (current-time))))
 
       ;; The end.
       (when (and (null noninteractive)
@@ -670,13 +588,16 @@ But handle the case, if the \"test\" command is not available."
 	(tramp-message v 0 "Wrote %s" filename))
       (run-hooks 'tramp-handle-write-region-hook))))
 
-(defun tramp-adb-handle-set-file-modes (filename mode &optional _flag)
+(defun tramp-adb-handle-set-file-modes (filename mode &optional flag)
   "Like `set-file-modes' for Tramp files."
   (with-parsed-tramp-file-name filename nil
-    (tramp-flush-file-properties v localname)
-    (tramp-adb-send-command-and-check v (format "chmod %o %s" mode localname))))
+    ;; ADB shell does not support "chmod -h".
+    (unless (and (eq flag 'nofollow) (file-symlink-p filename))
+      (tramp-flush-file-properties v localname)
+      (tramp-adb-send-command-and-check
+       v (format "chmod %o %s" mode (tramp-shell-quote-argument localname))))))
 
-(defun tramp-adb-handle-set-file-times (filename &optional time _flag)
+(defun tramp-adb-handle-set-file-times (filename &optional time flag)
   "Like `set-file-times' for Tramp files."
   (with-parsed-tramp-file-name filename nil
     (tramp-flush-file-properties v localname)
@@ -685,21 +606,23 @@ But handle the case, if the \"test\" command is not available."
 			(tramp-compat-time-equal-p time tramp-time-dont-know))
 		    (current-time)
 		  time))
+	  (nofollow (if (eq flag 'nofollow) "-h" ""))
 	  (quoted-name (tramp-shell-quote-argument localname)))
       ;; Older versions of toybox 'touch' mishandle nanoseconds and/or
       ;; trailing "Z", so fall back on plain seconds if nanoseconds+Z
       ;; fails.  Also, fall back on old POSIX 'touch -t' if 'touch -d'
       ;; (introduced in POSIX.1-2008) fails.
       (tramp-adb-send-command-and-check
-       v (format (concat "touch -d %s %s 2>/dev/null || "
-			 "touch -d %s %s 2>/dev/null || "
-			 "touch -t %s %s")
-		 (format-time-string "%Y-%m-%dT%H:%M:%S.%NZ" time t)
-		 quoted-name
-		 (format-time-string "%Y-%m-%dT%H:%M:%S" time t)
-		 quoted-name
-		 (format-time-string "%Y%m%d%H%M.%S" time t)
-		 quoted-name)))))
+       v (format
+	  (concat "touch -d %s %s %s 2>%s || "
+		  "touch -d %s %s %s 2>%s || "
+		  "touch -t %s %s %s")
+	  (format-time-string "%Y-%m-%dT%H:%M:%S.%NZ" time t)
+	  nofollow quoted-name (tramp-get-remote-null-device v)
+	  (format-time-string "%Y-%m-%dT%H:%M:%S" time t)
+	  nofollow quoted-name (tramp-get-remote-null-device v)
+	  (format-time-string "%Y%m%d%H%M.%S" time t)
+	  nofollow quoted-name)))))
 
 (defun tramp-adb-handle-copy-file
   (filename newname &optional ok-if-already-exists keep-date
@@ -713,7 +636,10 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
       (copy-directory filename newname keep-date t)
 
     (let ((t1 (tramp-tramp-file-p filename))
-	  (t2 (tramp-tramp-file-p newname)))
+	  (t2 (tramp-tramp-file-p newname))
+	  ;; We don't want the target file to be compressed, so we
+	  ;; let-bind `jka-compr-inhibit' to t.
+	  (jka-compr-inhibit t))
       (with-parsed-tramp-file-name (if t1 filename newname) nil
 	(unless (file-exists-p filename)
 	  (tramp-error
@@ -722,7 +648,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	(when (and (not ok-if-already-exists) (file-exists-p newname))
 	  (tramp-error v 'file-already-exists newname))
 	(when (and (file-directory-p newname)
-		   (not (tramp-compat-directory-name-p newname)))
+		   (not (directory-name-p newname)))
 	  (tramp-error v 'file-error "File is a directory %s" newname))
 
 	(with-tramp-progress-reporter
@@ -742,46 +668,45 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 		    (tramp-shell-quote-argument l2))
 		 "Error copying %s to %s" filename newname))
 
-	    (let ((tmpfile (file-local-copy filename)))
+	    (if-let ((tmpfile (file-local-copy filename)))
+		;; Remote filename.
+		(condition-case err
+		    (rename-file tmpfile newname ok-if-already-exists)
+		  ((error quit)
+		   (delete-file tmpfile)
+		   (signal (car err) (cdr err))))
 
-	      (if tmpfile
-		  ;; Remote filename.
-		  (condition-case err
-		      (rename-file tmpfile newname ok-if-already-exists)
-		    ((error quit)
-		     (delete-file tmpfile)
-		     (signal (car err) (cdr err))))
+	      ;; Remote newname.
+	      (when (and (file-directory-p newname)
+			 (directory-name-p newname))
+		(setq newname
+		      (expand-file-name
+		       (file-name-nondirectory filename) newname)))
 
-		;; Remote newname.
-		(when (and (file-directory-p newname)
-			   (tramp-compat-directory-name-p newname))
-		  (setq newname
-			(expand-file-name
-			 (file-name-nondirectory filename) newname)))
+	      (with-parsed-tramp-file-name newname nil
+		(when (and (not ok-if-already-exists)
+			   (file-exists-p newname))
+		  (tramp-error v 'file-already-exists newname))
 
-		(with-parsed-tramp-file-name newname nil
-		  (when (and (not ok-if-already-exists)
-			     (file-exists-p newname))
-		    (tramp-error v 'file-already-exists newname))
-
-		  ;; We must also flush the cache of the directory,
-		  ;; because `file-attributes' reads the values from
-		  ;; there.
-		  (tramp-flush-file-properties v localname)
-		  (when (tramp-adb-execute-adb-command
+		;; We must also flush the cache of the directory,
+		;; because `file-attributes' reads the values from
+		;; there.
+		(tramp-flush-file-properties v localname)
+		(unless (tramp-adb-execute-adb-command
 			 v "push"
 			 (tramp-compat-file-name-unquote filename)
 			 (tramp-compat-file-name-unquote localname))
-		    (tramp-error
-		     v 'file-error
-		     "Cannot copy `%s' `%s'" filename newname)))))))))
+		  (tramp-error
+		   v 'file-error
+		   "Cannot copy `%s' `%s'" filename newname))))))))
 
     ;; KEEP-DATE handling.
     (when keep-date
-      (set-file-times
+      (tramp-compat-set-file-times
        newname
        (tramp-compat-file-attribute-modification-time
-	(file-attributes filename))))))
+	(file-attributes filename))
+       (unless ok-if-already-exists 'nofollow)))))
 
 (defun tramp-adb-handle-rename-file
   (filename newname &optional ok-if-already-exists)
@@ -795,7 +720,10 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	(delete-directory filename 'recursive))
 
     (let ((t1 (tramp-tramp-file-p filename))
-	  (t2 (tramp-tramp-file-p newname)))
+	  (t2 (tramp-tramp-file-p newname))
+	  ;; We don't want the target file to be compressed, so we
+	  ;; let-bind `jka-compr-inhibit' to t.
+	  (jka-compr-inhibit t))
       (with-parsed-tramp-file-name (if t1 filename newname) nil
 	(unless (file-exists-p filename)
 	  (tramp-error
@@ -804,7 +732,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 	(when (and (not ok-if-already-exists) (file-exists-p newname))
 	  (tramp-error v 'file-already-exists newname))
 	(when (and (file-directory-p newname)
-		   (not (tramp-compat-directory-name-p newname)))
+		   (not (directory-name-p newname)))
 	  (tramp-error v 'file-error "File is a directory %s" newname))
 
 	(with-tramp-progress-reporter
@@ -872,7 +800,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 			       (cons program args) " "))
       ;; Determine input.
       (if (null infile)
-	  (setq input "/dev/null")
+	  (setq input (tramp-get-remote-null-device v))
 	(setq infile (expand-file-name infile))
 	(if (tramp-equal-remote default-directory infile)
 	    ;; INFILE is on the same remote host.
@@ -914,7 +842,7 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 		  tmpstderr (tramp-make-tramp-file-name v stderr))))
 	 ;; stderr to be discarded.
 	 ((null (cadr destination))
-	  (setq stderr "/dev/null"))))
+	  (setq stderr (tramp-get-remote-null-device v)))))
        ;; 't
        (destination
 	(setq outbuf (current-buffer))))
@@ -973,164 +901,173 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 ;; The complete STDERR buffer is available only when the process has
 ;; terminated.
 (defun tramp-adb-handle-make-process (&rest args)
-  "Like `make-process' for Tramp files."
-  (when args
-    (with-parsed-tramp-file-name (expand-file-name default-directory) nil
-      (let ((name (plist-get args :name))
-	    (buffer (plist-get args :buffer))
-	    (command (plist-get args :command))
-	    (coding (plist-get args :coding))
-	    (noquery (plist-get args :noquery))
-	    (connection-type (plist-get args :connection-type))
-	    (filter (plist-get args :filter))
-	    (sentinel (plist-get args :sentinel))
-	    (stderr (plist-get args :stderr)))
-	(unless (stringp name)
-	  (signal 'wrong-type-argument (list #'stringp name)))
-	(unless (or (null buffer) (bufferp buffer) (stringp buffer))
-	  (signal 'wrong-type-argument (list #'stringp buffer)))
-	(unless (consp command)
-	  (signal 'wrong-type-argument (list #'consp command)))
-	(unless (or (null coding)
-		    (and (symbolp coding) (memq coding coding-system-list))
-		    (and (consp coding)
-			 (memq (car coding) coding-system-list)
-			 (memq (cdr coding) coding-system-list)))
-	  (signal 'wrong-type-argument (list #'symbolp coding)))
-	(unless (or (null connection-type) (memq connection-type '(pipe pty)))
-	  (signal 'wrong-type-argument (list #'symbolp connection-type)))
-	(unless (or (null filter) (functionp filter))
-	  (signal 'wrong-type-argument (list #'functionp filter)))
-	(unless (or (null sentinel) (functionp sentinel))
-	  (signal 'wrong-type-argument (list #'functionp sentinel)))
-	(unless (or (null stderr) (bufferp stderr) (stringp stderr))
-	  (signal 'wrong-type-argument (list #'stringp stderr)))
-	(when (and (stringp stderr) (tramp-tramp-file-p stderr)
-		   (not (tramp-equal-remote default-directory stderr)))
-	  (signal 'file-error (list "Wrong stderr" stderr)))
+  "Like `make-process' for Tramp files.
+If method parameter `tramp-direct-async' and connection property
+\"direct-async-process\" are non-nil, an alternative
+implementation will be used."
+  (if (tramp-direct-async-process-p args)
+      (apply #'tramp-handle-make-process args)
+    (when args
+      (with-parsed-tramp-file-name (expand-file-name default-directory) nil
+	(let ((name (plist-get args :name))
+	      (buffer (plist-get args :buffer))
+	      (command (plist-get args :command))
+	      (coding (plist-get args :coding))
+	      (noquery (plist-get args :noquery))
+	      (connection-type (plist-get args :connection-type))
+	      (filter (plist-get args :filter))
+	      (sentinel (plist-get args :sentinel))
+	      (stderr (plist-get args :stderr)))
+	  (unless (stringp name)
+	    (signal 'wrong-type-argument (list #'stringp name)))
+	  (unless (or (null buffer) (bufferp buffer) (stringp buffer))
+	    (signal 'wrong-type-argument (list #'stringp buffer)))
+	  (unless (consp command)
+	    (signal 'wrong-type-argument (list #'consp command)))
+	  (unless (or (null coding)
+		      (and (symbolp coding) (memq coding coding-system-list))
+		      (and (consp coding)
+			   (memq (car coding) coding-system-list)
+			   (memq (cdr coding) coding-system-list)))
+	    (signal 'wrong-type-argument (list #'symbolp coding)))
+	  (unless (or (null connection-type) (memq connection-type '(pipe pty)))
+	    (signal 'wrong-type-argument (list #'symbolp connection-type)))
+	  (unless (or (null filter) (functionp filter))
+	    (signal 'wrong-type-argument (list #'functionp filter)))
+	  (unless (or (null sentinel) (functionp sentinel))
+	    (signal 'wrong-type-argument (list #'functionp sentinel)))
+	  (unless (or (null stderr) (bufferp stderr) (stringp stderr))
+	    (signal 'wrong-type-argument (list #'bufferp stderr)))
+	  (when (and (stringp stderr) (tramp-tramp-file-p stderr)
+		     (not (tramp-equal-remote default-directory stderr)))
+	    (signal 'file-error (list "Wrong stderr" stderr)))
 
-	(let* ((buffer
-		(if buffer
-		    (get-buffer-create buffer)
-		  ;; BUFFER can be nil.  We use a temporary buffer.
-		  (generate-new-buffer tramp-temp-buffer-name)))
-	       ;; STDERR can also be a file name.
-	       (tmpstderr
-		(and stderr
-		     (if (and (stringp stderr) (tramp-tramp-file-p stderr))
-			 (tramp-unquote-file-local-name stderr)
-		       (tramp-make-tramp-temp-file v))))
-	       (remote-tmpstderr
-		(and tmpstderr (tramp-make-tramp-file-name v tmpstderr)))
-	       (program (car command))
-	       (args (cdr command))
-	       (command
-		(format "cd %s && exec %s %s"
-			(tramp-shell-quote-argument localname)
-			(if tmpstderr (format "2>'%s'" tmpstderr) "")
-			(mapconcat #'tramp-shell-quote-argument
-				   (cons program args) " ")))
-	       (tramp-process-connection-type
-		(or (null program) tramp-process-connection-type))
-	       (bmp (and (buffer-live-p buffer) (buffer-modified-p buffer)))
-	       (name1 name)
-	       (i 0))
+	  (let* ((buffer
+		  (if buffer
+		      (get-buffer-create buffer)
+		    ;; BUFFER can be nil.  We use a temporary buffer.
+		    (generate-new-buffer tramp-temp-buffer-name)))
+		 ;; STDERR can also be a file name.
+		 (tmpstderr
+		  (and stderr
+		       (if (and (stringp stderr) (tramp-tramp-file-p stderr))
+			   (tramp-unquote-file-local-name stderr)
+			 (tramp-make-tramp-temp-file v))))
+		 (remote-tmpstderr
+		  (and tmpstderr (tramp-make-tramp-file-name v tmpstderr)))
+		 (program (car command))
+		 (args (cdr command))
+		 (command
+		  (format "cd %s && exec %s %s"
+			  (tramp-shell-quote-argument localname)
+			  (if tmpstderr (format "2>'%s'" tmpstderr) "")
+			  (mapconcat #'tramp-shell-quote-argument
+				     (cons program args) " ")))
+		 (tramp-process-connection-type
+		  (or (null program) tramp-process-connection-type))
+		 (bmp (and (buffer-live-p buffer) (buffer-modified-p buffer)))
+		 (name1 name)
+		 (i 0))
 
-	  (while (get-process name1)
-	    ;; NAME must be unique as process name.
-	    (setq i (1+ i)
-		  name1 (format "%s<%d>" name i)))
-	  (setq name name1)
-	  ;; Set the new process properties.
-	  (tramp-set-connection-property v "process-name" name)
-	  (tramp-set-connection-property v "process-buffer" buffer)
+	    (while (get-process name1)
+	      ;; NAME must be unique as process name.
+	      (setq i (1+ i)
+		    name1 (format "%s<%d>" name i)))
+	    (setq name name1)
+	    ;; Set the new process properties.
+	    (tramp-set-connection-property v "process-name" name)
+	    (tramp-set-connection-property v "process-buffer" buffer)
 
-	  (with-current-buffer (tramp-get-connection-buffer v)
-	    (unwind-protect
-		;; We catch this event.  Otherwise, `make-process'
-		;; could be called on the local host.
-		(save-excursion
-		  (save-restriction
-		    ;; Activate narrowing in order to save BUFFER
-		    ;; contents.  Clear also the modification time;
-		    ;; otherwise we might be interrupted by
-		    ;; `verify-visited-file-modtime'.
-		    (let ((buffer-undo-list t)
-			  (inhibit-read-only t))
-		      (clear-visited-file-modtime)
-		      (narrow-to-region (point-max) (point-max))
-		      ;; We call `tramp-adb-maybe-open-connection', in
-		      ;; order to cleanup the prompt afterwards.
-		      (tramp-adb-maybe-open-connection v)
-		      (delete-region (point-min) (point-max))
-		      ;; Send the command.
-		      (let* ((p (tramp-get-connection-process v)))
-                        (tramp-adb-send-command v command nil t) ; nooutput
-			;; Set sentinel and filter.
-			(when sentinel
-			  (set-process-sentinel p sentinel))
-			(when filter
-			  (set-process-filter p filter))
-			;; Set query flag and process marker for this
-			;; process.  We ignore errors, because the
-			;; process could have finished already.
-			(ignore-errors
-			  (set-process-query-on-exit-flag p (null noquery))
-			  (set-marker (process-mark p) (point)))
-			;; We must flush them here already; otherwise
-			;; `rename-file', `delete-file' or
-			;; `insert-file-contents' will fail.
-			(tramp-flush-connection-property v "process-name")
-			(tramp-flush-connection-property v "process-buffer")
-			;; Copy tmpstderr file.
-			(when (and (stringp stderr)
-				   (not (tramp-tramp-file-p stderr)))
-			  (add-function
-			   :after (process-sentinel p)
-			   (lambda (_proc _msg)
-			     (rename-file remote-tmpstderr stderr))))
-			;; Read initial output.  Remove the first line,
-			;; which is the command echo.
-			(while
-			    (progn
-			      (goto-char (point-min))
-			      (not (re-search-forward "[\n]" nil t)))
-			  (tramp-accept-process-output p 0))
-			(delete-region (point-min) (point))
-			;; Provide error buffer.  This shows only
-			;; initial error messages; messages arriving
-			;; later on will be inserted when the process
-			;; is deleted.  The temporary file will exist
-			;; until the process is deleted.
-			(when (bufferp stderr)
-			  (with-current-buffer stderr
-			    (insert-file-contents-literally
-			     remote-tmpstderr 'visit))
-			  ;; Delete tmpstderr file.
-			  (add-function
-			   :after (process-sentinel p)
-			   (lambda (_proc _msg)
-			     (with-current-buffer stderr
-			       (insert-file-contents-literally
-				remote-tmpstderr 'visit nil nil 'replace))
-			     (delete-file remote-tmpstderr))))
-			;; Return process.
-			p))))
+	    (with-current-buffer (tramp-get-connection-buffer v)
+	      (unwind-protect
+		  ;; We catch this event.  Otherwise, `make-process'
+		  ;; could be called on the local host.
+		  (save-excursion
+		    (save-restriction
+		      ;; Activate narrowing in order to save BUFFER
+		      ;; contents.  Clear also the modification time;
+		      ;; otherwise we might be interrupted by
+		      ;; `verify-visited-file-modtime'.
+		      (let ((buffer-undo-list t)
+			    (inhibit-read-only t)
+			    (coding-system-for-write
+			     (if (symbolp coding) coding (car coding)))
+			    (coding-system-for-read
+			     (if (symbolp coding) coding (cdr coding))))
+			(clear-visited-file-modtime)
+			(narrow-to-region (point-max) (point-max))
+			;; We call `tramp-adb-maybe-open-connection',
+			;; in order to cleanup the prompt afterwards.
+			(tramp-adb-maybe-open-connection v)
+			(delete-region (point-min) (point-max))
+			;; Send the command.
+			(let* ((p (tramp-get-connection-process v)))
+                          (tramp-adb-send-command v command nil t) ; nooutput
+			  ;; Set sentinel and filter.
+			  (when sentinel
+			    (set-process-sentinel p sentinel))
+			  (when filter
+			    (set-process-filter p filter))
+			  ;; Set query flag and process marker for
+			  ;; this process.  We ignore errors, because
+			  ;; the process could have finished already.
+			  (ignore-errors
+			    (set-process-query-on-exit-flag p (null noquery))
+			    (set-marker (process-mark p) (point)))
+			  ;; We must flush them here already;
+			  ;; otherwise `rename-file', `delete-file' or
+			  ;; `insert-file-contents' will fail.
+			  (tramp-flush-connection-property v "process-name")
+			  (tramp-flush-connection-property v "process-buffer")
+			  ;; Copy tmpstderr file.
+			  (when (and (stringp stderr)
+				     (not (tramp-tramp-file-p stderr)))
+			    (add-function
+			     :after (process-sentinel p)
+			     (lambda (_proc _msg)
+			       (rename-file remote-tmpstderr stderr))))
+			  ;; Read initial output.  Remove the first
+			  ;; line, which is the command echo.
+			  (while
+			      (progn
+				(goto-char (point-min))
+				(not (re-search-forward "[\n]" nil t)))
+			    (tramp-accept-process-output p 0))
+			  (delete-region (point-min) (point))
+			  ;; Provide error buffer.  This shows only
+			  ;; initial error messages; messages arriving
+			  ;; later on will be inserted when the
+			  ;; process is deleted.  The temporary file
+			  ;; will exist until the process is deleted.
+			  (when (bufferp stderr)
+			    (with-current-buffer stderr
+			      (insert-file-contents-literally
+			       remote-tmpstderr 'visit))
+			    ;; Delete tmpstderr file.
+			    (add-function
+			     :after (process-sentinel p)
+			     (lambda (_proc _msg)
+			       (with-current-buffer stderr
+				 (insert-file-contents-literally
+				  remote-tmpstderr 'visit nil nil 'replace))
+			       (delete-file remote-tmpstderr))))
+			  ;; Return process.
+			  p))))
 
-	      ;; Save exit.
-	      (if (string-match-p tramp-temp-buffer-name (buffer-name))
-		  (ignore-errors
-		    (set-process-buffer (tramp-get-connection-process v) nil)
-		    (kill-buffer (current-buffer)))
-		(set-buffer-modified-p bmp))
-	      (tramp-flush-connection-property v "process-name")
-	      (tramp-flush-connection-property v "process-buffer"))))))))
+		;; Save exit.
+		(if (string-match-p tramp-temp-buffer-name (buffer-name))
+		    (ignore-errors
+		      (set-process-buffer (tramp-get-connection-process v) nil)
+		      (kill-buffer (current-buffer)))
+		  (set-buffer-modified-p bmp))
+		(tramp-flush-connection-property v "process-name")
+		(tramp-flush-connection-property v "process-buffer")))))))))
 
 (defun tramp-adb-handle-exec-path ()
   "Like `exec-path' for Tramp files."
   (append
    (with-parsed-tramp-file-name default-directory nil
-     (with-tramp-connection-property v "remote-path"
+     (with-tramp-connection-property (tramp-get-process v) "remote-path"
        (tramp-adb-send-command v "echo \\\"$PATH\\\"")
        (split-string
 	(with-current-buffer (tramp-get-connection-buffer v)
@@ -1145,15 +1082,11 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
   "Return full host name from VEC to be used in shell execution.
 E.g. a host name \"192.168.1.1#5555\" returns \"192.168.1.1:5555\"
      a host name \"R38273882DE\" returns \"R38273882DE\"."
-  ;; Sometimes this is called before there is a connection process
-  ;; yet.  In order to work with the connection cache, we flush all
-  ;; unwanted entries first.
-  (tramp-flush-connection-properties nil)
-  (with-tramp-connection-property (tramp-get-connection-process vec) "device"
+  (with-tramp-connection-property (tramp-get-process vec) "device"
     (let* ((host (tramp-file-name-host vec))
 	   (port (tramp-file-name-port-or-default vec))
 	   (devices (mapcar #'cadr (tramp-adb-parse-device-names nil))))
-      (replace-regexp-in-string
+      (tramp-compat-string-replace
        tramp-prefix-port-format ":"
        (cond ((member host devices) host)
 	     ;; This is the case when the host is connected to the default port.
@@ -1167,10 +1100,10 @@ E.g. a host name \"192.168.1.1#5555\" returns \"192.168.1.1:5555\"
 	     ;; Try to connect device.
 	     ((and tramp-adb-connect-if-not-connected
 		   (not (zerop (length host)))
-		   (not (tramp-adb-execute-adb-command
-                         vec "connect"
-                         (replace-regexp-in-string
-                          tramp-prefix-port-format ":" host))))
+		   (tramp-adb-execute-adb-command
+                    vec "connect"
+                    (tramp-compat-string-replace
+		     tramp-prefix-port-format ":" host)))
 	      ;; When new device connected, running other adb command (e.g.
 	      ;; adb shell) immediately will fail.  To get around this
 	      ;; problem, add sleep 0.1 second here.
@@ -1180,18 +1113,18 @@ E.g. a host name \"192.168.1.1#5555\" returns \"192.168.1.1:5555\"
 		 vec 'file-error "Could not find device %s" host)))))))
 
 (defun tramp-adb-execute-adb-command (vec &rest args)
-  "Return nil on success error-output on failure."
+  "Execute an adb command.
+Insert the result into the connection buffer.  Return nil on
+error and non-nil on success."
   (when (and (> (length (tramp-file-name-host vec)) 0)
 	     ;; The -s switch is only available for ADB device commands.
 	     (not (member (car args) '("connect" "disconnect"))))
     (setq args (append (list "-s" (tramp-adb-get-device vec)) args)))
-  (with-temp-buffer
-    (prog1
-	(unless
-	    (zerop
-	     (apply #'tramp-call-process vec tramp-adb-program nil t nil args))
-	  (buffer-string))
-      (tramp-message vec 6 "%s" (buffer-string)))))
+  (with-current-buffer (tramp-get-connection-buffer vec)
+    ;; Clean up the buffer.  We cannot call `erase-buffer' because
+    ;; narrowing might be in effect.
+    (let ((inhibit-read-only t)) (delete-region (point-min) (point-max)))
+    (zerop (apply #'tramp-call-process vec tramp-adb-program nil t nil args))))
 
 (defun tramp-adb-find-test-command (vec)
   "Check whether the ash has a builtin \"test\" command.
@@ -1203,25 +1136,37 @@ This happens for Android >= 4.0."
 
 (defun tramp-adb-send-command (vec command &optional neveropen nooutput)
   "Send the COMMAND to connection VEC."
-  (unless neveropen (tramp-adb-maybe-open-connection vec))
-  (tramp-message vec 6 "%s" command)
-  (tramp-send-string vec command)
-  (unless nooutput
-    ;; FIXME: Race condition.
-    (tramp-adb-wait-for-output (tramp-get-connection-process vec))
-    (with-current-buffer (tramp-get-connection-buffer vec)
-      (save-excursion
-	(goto-char (point-min))
-	;; We can't use stty to disable echo of command.  stty is said
-	;; to be added to toybox 0.7.6.  busybox shall have it, but this
-	;; isn't used any longer for Android.
-	(delete-matching-lines (regexp-quote command))
-	;; When the local machine is W32, there are still trailing ^M.
-	;; There must be a better solution by setting the correct coding
-	;; system, but this requires changes in core Tramp.
-	(goto-char (point-min))
-	(while (re-search-forward "\r+$" nil t)
-	  (replace-match "" nil nil))))))
+  (if (string-match-p "[[:multibyte:]]" command)
+      ;; Multibyte codepoints with four bytes are not supported at
+      ;; least by toybox.
+
+      ;; <https://android.stackexchange.com/questions/226638/how-to-use-multibyte-file-names-in-adb-shell/232379#232379>
+      ;; mksh uses UTF-8 internally, but is currently limited to the
+      ;; BMP (basic multilingua plane), which means U+0000 to
+      ;; U+FFFD. If you want to use SMP codepoints (U-00010000 to
+      ;; U-0010FFFD) on the input line, you currently have to disable
+      ;; the UTF-8 mode (sorry).
+      (tramp-adb-execute-adb-command vec "shell" command)
+
+    (unless neveropen (tramp-adb-maybe-open-connection vec))
+    (tramp-message vec 6 "%s" command)
+    (tramp-send-string vec command)
+    (unless nooutput
+      ;; FIXME: Race condition.
+      (tramp-adb-wait-for-output (tramp-get-connection-process vec))
+      (with-current-buffer (tramp-get-connection-buffer vec)
+	(save-excursion
+	  (goto-char (point-min))
+	  ;; We can't use stty to disable echo of command.  stty is said
+	  ;; to be added to toybox 0.7.6.  busybox shall have it, but this
+	  ;; isn't used any longer for Android.
+	  (delete-matching-lines (regexp-quote command))
+	  ;; When the local machine is W32, there are still trailing ^M.
+	  ;; There must be a better solution by setting the correct coding
+	  ;; system, but this requires changes in core Tramp.
+	  (goto-char (point-min))
+	  (while (re-search-forward "\r+$" nil t)
+	    (replace-match "" nil nil)))))))
 
 (defun tramp-adb-send-command-and-check (vec command &optional exit-status)
   "Run COMMAND and check its exit status.
@@ -1236,7 +1181,7 @@ the exit status."
 	   (format "%s; echo tramp_exit_status $?" command)
 	 "echo tramp_exit_status $?"))
   (with-current-buffer (tramp-get-connection-buffer vec)
-    (unless (tramp-search-regexp "tramp_exit_status [0-9]+")
+    (unless (tramp-search-regexp "tramp_exit_status [[:digit:]]+")
       (tramp-error
        vec 'file-error "Couldn't find exit status of `%s'" command))
     (skip-chars-forward "^ ")
@@ -1334,18 +1279,33 @@ connection if a previous connection has died for some reason."
 	    (process-put p 'adjust-window-size-function #'ignore)
 	    (set-process-query-on-exit-flag p nil)
 
+	    ;; Set connection-local variables.
+	    (tramp-set-connection-local-variables vec)
+
 	    ;; Change prompt.
 	    (tramp-set-connection-property
 	     p "prompt" (regexp-quote (format "///%s#$" prompt)))
 	    (tramp-adb-send-command
 	     vec (format "PS1=\"///\"\"%s\"\"#$\"" prompt))
 
+	    ;; Disable line editing.
+	    (tramp-adb-send-command
+	     vec "set +o vi +o vi-esccomplete +o vi-tabcomplete +o emacs")
+
+	    ;; Dump option settings in the traces.
+	    (when (>= tramp-verbose 9)
+	      (tramp-adb-send-command vec "set -o"))
+
 	    ;; Check whether the properties have been changed.  If
 	    ;; yes, this is a strong indication that we must expire all
 	    ;; connection properties.  We start again.
 	    (tramp-message vec 5 "Checking system information")
 	    (tramp-adb-send-command
-	     vec "echo \\\"`getprop ro.product.model` `getprop ro.product.version` `getprop ro.build.version.release`\\\"")
+	     vec
+	     (concat
+	      "echo \\\"`getprop ro.product.model` "
+	      "`getprop ro.product.version` "
+	      "`getprop ro.build.version.release`\\\""))
 	    (let ((old-getprop
 		   (tramp-get-connection-property vec "getprop" nil))
 		  (new-getprop
@@ -1369,33 +1329,32 @@ connection if a previous connection has died for some reason."
 	      (tramp-adb-send-command vec (format "su %s" user))
 	      (unless (tramp-adb-send-command-and-check vec nil)
 		(delete-process p)
-		(tramp-flush-file-property vec "" "su-command-p")
+		;; Do not flush, we need the nil value.
+		(tramp-set-file-property vec "" "su-command-p" nil)
 		(tramp-error
 		 vec 'file-error "Cannot switch to user `%s'" user)))
-
-	    ;; Set connection-local variables.
-	    (tramp-set-connection-local-variables vec)
 
 	    ;; Mark it as connected.
 	    (tramp-set-connection-property p "connected" t)))))))
 
-;; Default settings for connection-local variables.
-(defconst tramp-adb-connection-local-default-profile
-  '((shell-file-name . "/system/bin/sh")
-    (shell-command-switch . "-c"))
-  "Default connection-local variables for remote adb connections.")
-
+;;; Default connection-local variables for Tramp:
 ;; `connection-local-set-profile-variables' and
 ;; `connection-local-set-profiles' exists since Emacs 26.1.
+(defconst tramp-adb-connection-local-default-shell-variables
+  '((shell-file-name . "/system/bin/sh")
+    (shell-command-switch . "-c"))
+  "Default connection-local shell variables for remote adb connections.")
+
+(tramp-compat-funcall
+ 'connection-local-set-profile-variables
+ 'tramp-adb-connection-local-default-shell-profile
+ tramp-adb-connection-local-default-shell-variables)
+
 (with-eval-after-load 'shell
-  (tramp-compat-funcall
-   'connection-local-set-profile-variables
-   'tramp-adb-connection-local-default-profile
-   tramp-adb-connection-local-default-profile)
   (tramp-compat-funcall
    'connection-local-set-profiles
    `(:application tramp :protocol ,tramp-adb-method)
-   'tramp-adb-connection-local-default-profile))
+   'tramp-adb-connection-local-default-shell-profile))
 
 (add-hook 'tramp-unload-hook
 	  (lambda ()
@@ -1403,4 +1362,9 @@ connection if a previous connection has died for some reason."
 
 (provide 'tramp-adb)
 
+;;; TODO:
+;;
+;; * Support file names with multibyte codepoints.  Use as fallback
+;;   "adb shell COMMAND".
+;;
 ;;; tramp-adb.el ends here

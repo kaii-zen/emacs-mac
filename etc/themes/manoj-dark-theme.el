@@ -1,22 +1,24 @@
-;;; manoj-dark.el --- A dark theme from Manoj
+;;; manoj-dark.el --- A dark theme from Manoj  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2011-2021 Free Software Foundation, Inc.
 
 ;; Author: Manoj Srivastava <srivasta@ieee.org>
 ;; Keywords: lisp, faces
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -60,7 +62,7 @@
 ;; org-mode, CUA-mode, apt-utils, bbdb, compilation buffers, changelog
 ;; mode, diff and ediff, eshell, and more. You need emacs-goodies
 ;; package on Debian to use this.  See the wiki page at
-;; http://www.emacswiki.org/cgi-bin/wiki?ColorTheme for details. The
+;; https://www.emacswiki.org/cgi-bin/wiki?ColorTheme for details. The
 ;; project home page is at https://gna.org/projects/color-theme.
 
 ;;; Code:
@@ -88,7 +90,6 @@ jarring angry fruit salad look to reduce eye fatigue.")
  '(font-lock-comment-face       ((t (:italic t :slant oblique :foreground "chocolate1"))))
  '(font-lock-comment-delimiter-face ((t (:foreground "Salmon"))))
  '(font-lock-doc-face           ((t (:italic t :slant oblique :foreground "LightCoral"))))
- '(font-lock-doc-string-face    ((t (:foreground "Plum"))))
  '(font-lock-warning-face ((t (:bold t :foreground "Pink" :weight bold))))
 
  '(cperl-array-face ((t (:foreground "LawnGreen" :background "Black" :bold t))))

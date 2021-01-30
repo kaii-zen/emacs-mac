@@ -1,4 +1,4 @@
-;;; srecode.el --- Semantic buffer evaluator.
+;;; srecode.el --- Semantic buffer evaluator.  -*- lexical-binding: t -*-
 
 ;;; Copyright (C) 2005, 2007-2021 Free Software Foundation, Inc.
 

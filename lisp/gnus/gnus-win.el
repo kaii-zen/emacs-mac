@@ -68,7 +68,7 @@ used to display Gnus windows."
   :type 'boolean)
 
 (defvar gnus-buffer-configuration
-  '((group
+  `((group
      (vertical 1.0
 	       (group 1.0 point)))
     (summary
@@ -142,10 +142,9 @@ used to display Gnus windows."
     (pipe
      (vertical 1.0
 	       (summary 0.25 point)
-	       ("*Shell Command Output*" 1.0)))
+               (,shell-command-buffer-name 1.0)))
     (bug
      (vertical 1.0
-	       (if gnus-bug-create-help-buffer '("*Gnus Help Bug*" 0.5))
 	       ("*Gnus Bug*" 1.0 point)))
     (score-trace
      (vertical 1.0

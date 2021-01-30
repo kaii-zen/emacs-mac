@@ -242,7 +242,7 @@ So the cdr of each bookmark is an alist too.")
     (save-window-excursion
       ;; Avoid warnings?
       ;; (message "Saving Gnus bookmarks to file %s..." gnus-bookmark-default-file)
-      (set-buffer (get-buffer-create  " *Gnus bookmarks*"))
+      (set-buffer (gnus-get-buffer-create  " *Gnus bookmarks*"))
       (erase-buffer)
       (gnus-bookmark-insert-file-format-version-stamp)
       (pp gnus-bookmark-alist (current-buffer))
@@ -345,8 +345,7 @@ copy of the alist."
   (when gnus-bookmark-sort-flag
     (setq gnus-bookmark-alist
 	  (sort (copy-alist gnus-bookmark-alist)
-		(function
-		 (lambda (x y) (string-lessp (car x) (car y))))))))
+                (lambda (x y) (string-lessp (car x) (car y)))))))
 
 ;;;###autoload
 (defun gnus-bookmark-bmenu-list ()
@@ -357,8 +356,8 @@ deletion, or > if it is flagged for displaying."
   (interactive)
   (gnus-bookmark-maybe-load-default-file)
   (if (called-interactively-p 'any)
-      (switch-to-buffer (get-buffer-create "*Gnus Bookmark List*"))
-    (set-buffer (get-buffer-create "*Gnus Bookmark List*")))
+      (switch-to-buffer (gnus-get-buffer-create "*Gnus Bookmark List*"))
+    (set-buffer (gnus-get-buffer-create "*Gnus Bookmark List*")))
   (let ((inhibit-read-only t)
 	alist name start end)
     (erase-buffer)
@@ -648,7 +647,7 @@ reposition and try again, else return nil."
 	(details gnus-bookmark-bookmark-details)
 	detail)
     (save-excursion
-      (pop-to-buffer (get-buffer-create "*Gnus Bookmark Annotation*") t)
+      (pop-to-buffer (gnus-get-buffer-create "*Gnus Bookmark Annotation*") t)
       (erase-buffer)
       (while details
 	(setq detail (pop details))

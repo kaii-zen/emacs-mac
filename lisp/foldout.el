@@ -487,7 +487,7 @@ What happens depends on the number of mouse clicks:-
 Signal an error if the final event isn't the same type as the first one."
   (let ((initial-event-type (event-basic-type event)))
     (while (null (sit-for (/ double-click-time 1000.0) 'nodisplay))
-      (setq event (read-event)))
+      (setq event (read--potential-mouse-event)))
     (or (eq initial-event-type (event-basic-type event))
 	(error "")))
   event)
@@ -527,19 +527,18 @@ Valid modifiers are shift, control, meta, alt, hyper and super.")
     (define-key map "\C-z" 'foldout-zoom-subtree)
     (define-key map "\C-x" 'foldout-exit-fold))
   (let* ((modifiers (apply 'concat
-			   (mapcar (function
-				    (lambda (modifier)
-				      (vector
-				       (cond
-					 ((eq modifier 'shift) ?S)
-					 ((eq modifier 'control) ?C)
-					 ((eq modifier 'meta) ?M)
-					 ((eq modifier 'alt) ?A)
-					 ((eq modifier 'hyper) ?H)
-					 ((eq modifier 'super) ?s)
-					 (t (error "invalid mouse modifier %s"
-						   modifier)))
-				       ?-)))
+                           (mapcar (lambda (modifier)
+                                     (vector
+                                      (cond
+                                       ((eq modifier 'shift) ?S)
+                                       ((eq modifier 'control) ?C)
+                                       ((eq modifier 'meta) ?M)
+                                       ((eq modifier 'alt) ?A)
+                                       ((eq modifier 'hyper) ?H)
+                                       ((eq modifier 'super) ?s)
+                                       (t (error "invalid mouse modifier %s"
+                                                 modifier)))
+                                      ?-))
 				   foldout-mouse-modifiers)))
 	 (mouse-1 (vector (intern (concat modifiers "down-mouse-1"))))
 	 (mouse-2 (vector (intern (concat modifiers "down-mouse-2"))))

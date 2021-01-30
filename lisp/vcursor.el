@@ -602,15 +602,14 @@ Set `vcursor-window' to the returned value as a side effect."
 	       (pos-visible-in-window-p (point) vcursor-window))
 	  (progn
 	    (walk-windows
-	     (function
-	      (lambda (win)
-		(and (not winok)
-		     (eq (current-buffer) (window-buffer win))
-		     (not (and not-this (eq thiswin win)))
-		     (cond
-		      ((pos-visible-in-window-p (point) win) (setq winok win))
-		      ((eq thiswin win))
-		      ((not winbuf) (setq winbuf win))))))
+             (lambda (win)
+               (and (not winok)
+                    (eq (current-buffer) (window-buffer win))
+                    (not (and not-this (eq thiswin win)))
+                    (cond
+                     ((pos-visible-in-window-p (point) win) (setq winok win))
+                     ((eq thiswin win))
+                     ((not winbuf) (setq winbuf win)))))
 	     nil (not this-frame))
 	    (setq vcursor-window
 		  (cond
@@ -1131,9 +1130,6 @@ line is treated like ordinary characters."
 	 (count (vcursor-get-char-count 'end-of-line num)))
     (vcursor-copy (if (or (= count 0) arg) (1+ count) count)))
   )
-
-(define-obsolete-function-alias
-  'vcursor-toggle-vcursor-map 'vcursor-use-vcursor-map "23.1")
 
 (defun vcursor-post-command ()
   (and vcursor-auto-disable (not vcursor-last-command)

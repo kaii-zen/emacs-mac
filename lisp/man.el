@@ -90,7 +90,6 @@
 
 (require 'ansi-color)
 (require 'cl-lib)
-(require 'button)
 
 (defgroup man nil
   "Browse UNIX manual pages."
@@ -253,7 +252,7 @@ the associated section number."
   "Regexp that matches the text that precedes the command's name.
 Used in `bookmark-set' to get the default bookmark name."
   :version "24.1"
-  :type 'string :group 'bookmark)
+  :type 'regexp :group 'bookmark)
 
 (defcustom manual-program "man"
   "Program used by `man' to produce man pages."
@@ -836,7 +835,8 @@ POS defaults to `point'."
 ;; ======================================================================
 ;; Top level command and background process sentinel
 
-;; For compatibility with older versions.
+;; This alias was originally for compatibility with older versions.
+;; Some users got used to having it, so we will not remove it.
 ;;;###autoload
 (defalias 'manual-entry 'man)
 
@@ -926,15 +926,18 @@ foo(sec)[, bar(sec) [, ...]] [other stuff] - description"
             ;; run differently in Man-getpage-in-background, an error
             ;; here may not necessarily mean that we'll also get an
             ;; error later.
-	    (ignore-errors
-	      (call-process manual-program nil '(t nil) nil
-			    "-k" (concat (when (or Man-man-k-use-anchor
-						   (string-equal prefix ""))
-					   "^")
-					 prefix))))
-	  (setq table (Man-parse-man-k)))
+            (when (eq 0
+                      (ignore-errors
+                        (call-process
+                         manual-program nil '(t nil) nil
+                         "-k" (concat (when (or Man-man-k-use-anchor
+                                                (string-equal prefix ""))
+                                        "^")
+                                      prefix))))
+              (setq table (Man-parse-man-k)))))
 	;; Cache the table for later reuse.
-	(setq Man-completion-cache (cons prefix table)))
+        (when table
+          (setq Man-completion-cache (cons prefix table))))
       ;; The table may contain false positives since the match is made
       ;; by "man -k" not just on the manpage's name.
       (if section
@@ -1013,10 +1016,9 @@ to auto-complete your input based on the installed manual pages."
 		(completion-ignore-case t)
 		Man-completion-cache    ;Don't cache across calls.
 		(input (completing-read
-			(format "Manual entry%s"
-				(if (string= default-entry "")
-				    ": "
-				  (format " (default %s): " default-entry)))
+			(format-prompt "Manual entry"
+                                       (and (not (equal default-entry ""))
+                                            default-entry))
                         'Man-completion-table
 			nil nil nil 'Man-topic-history default-entry)))
 	   (if (string= input "")
@@ -1106,7 +1108,6 @@ Return the buffer in which the manpage will appear."
 	 (buffer  (get-buffer bufname)))
     (if buffer
 	(Man-notify-when-ready buffer)
-      (require 'env)
       (message "Invoking %s %s in the background" manual-program man-args)
       (setq buffer (generate-new-buffer bufname))
       (with-current-buffer buffer
@@ -1396,7 +1397,7 @@ synchronously, PROCESS is the name of the buffer where the manpage
 command is run.  Second argument STRING is the entire string of output."
   (save-excursion
     (let ((Man-buffer (process-buffer process)))
-      (if (null (buffer-name Man-buffer)) ;; deleted buffer
+      (if (not (buffer-live-p Man-buffer)) ;; deleted buffer
 	  (set-process-buffer process nil)
 
 	(with-current-buffer Man-buffer
@@ -1430,7 +1431,7 @@ manpage command."
 	(delete-buff nil)
 	message)
 
-    (if (null (buffer-name Man-buffer)) ;; deleted buffer
+    (if (not (buffer-live-p Man-buffer)) ;; deleted buffer
 	(or (stringp process)
 	    (set-process-buffer process nil))
 
@@ -1508,8 +1509,11 @@ manpage command."
 
       (when delete-buff
         (if (window-live-p (get-buffer-window Man-buffer t))
-            (quit-restore-window
-             (get-buffer-window Man-buffer t) 'kill)
+            (progn
+              (quit-restore-window
+               (get-buffer-window Man-buffer t) 'kill)
+              ;; Ensure that we end up in the correct window.
+              (select-window (old-selected-window)))
           (kill-buffer Man-buffer)))
 
       (when message
@@ -1579,10 +1583,10 @@ The following key bindings are currently in effect in the buffer:
   (auto-fill-mode -1)
   (setq imenu-generic-expression (list (list nil Man-heading-regexp 0)))
   (imenu-add-to-menubar man-imenu-title)
-  (set (make-local-variable 'outline-regexp) Man-heading-regexp)
-  (set (make-local-variable 'outline-level) (lambda () 1))
-  (set (make-local-variable 'bookmark-make-record-function)
-       'Man-bookmark-make-record)
+  (setq-local outline-regexp Man-heading-regexp)
+  (setq-local outline-level (lambda () 1))
+  (setq-local bookmark-make-record-function
+              #'Man-bookmark-make-record)
   (add-hook 'window-state-change-functions #'Man--window-state-change nil t))
 
 (defun Man-build-section-list ()

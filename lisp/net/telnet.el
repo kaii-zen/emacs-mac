@@ -149,7 +149,7 @@ rejecting one login and prompting again for a username and password.")
 	    ((string-match "passw" string)
 	     (telnet-filter proc string)
 	     (setq telnet-count 0)
-	     (process-send-string proc (concat (comint-read-noecho "Password: " t)
+	     (process-send-string proc (concat (read-passwd "Password: ")
                                                telnet-new-line))
 	     (clear-this-command-keys))
 	    (t (telnet-check-software-type-initialize string)
@@ -253,9 +253,9 @@ There is a variable `telnet-interrupt-string' which is the character
 sent to try to stop execution of a job on the remote host.
 Data is sent to the remote host when RET is typed."
   (setq-local revert-buffer-function 'telnet-revert-buffer)
-  (set (make-local-variable 'window-point-insertion-type) t)
-  (set (make-local-variable 'comint-prompt-regexp) telnet-prompt-pattern)
-  (set (make-local-variable 'comint-use-prompt-regexp) t))
+  (setq-local window-point-insertion-type t)
+  (setq-local comint-prompt-regexp telnet-prompt-pattern)
+  (setq-local comint-use-prompt-regexp t))
 
 ;;;###autoload
 (defun rsh (host)

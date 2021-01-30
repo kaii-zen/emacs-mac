@@ -1381,7 +1381,7 @@ To make local rx extensions, use `rx-let' for `rx',
 For more details, see Info node `(elisp) Extending Rx'.
 
 \(fn NAME [(ARGS...)] RX)"
-  (declare (indent 1))
+  (declare (indent defun))
   `(eval-and-compile
      (put ',name 'rx-definition ',(rx--make-binding name definition))
      ',name))
@@ -1418,6 +1418,7 @@ into a plain rx-expression, collecting names into `rx--pcase-vars'."
      (cons head (mapcar #'rx--pcase-transform rest)))
     (_ rx)))
 
+;;;###autoload
 (pcase-defmacro rx (&rest regexps)
   "A pattern that matches strings against `rx' REGEXPS in sexp form.
 REGEXPS are interpreted as in `rx'.  The pattern matches any

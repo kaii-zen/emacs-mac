@@ -557,8 +557,7 @@ Variables controlling indentation style and extra features:
  dcl-imenu-label-call
     Change the text that is used as sub-listing labels in imenu.
 
-Loading this package calls the value of the variable
-`dcl-mode-load-hook' with no args, if that value is non-nil.
+To run code after DCL mode has loaded, use `with-eval-after-load'.
 Turning on DCL mode calls the value of the variable `dcl-mode-hook'
 with no args, if that value is non-nil.
 
@@ -589,17 +588,17 @@ $
 
 There is some minimal font-lock support (see vars
 `dcl-font-lock-defaults' and `dcl-font-lock-keywords')."
-  (set (make-local-variable 'indent-line-function) 'dcl-indent-line)
-  (set (make-local-variable 'comment-start) "!")
-  (set (make-local-variable 'comment-end) "")
-  (set (make-local-variable 'comment-multi-line) nil)
+  (setq-local indent-line-function 'dcl-indent-line)
+  (setq-local comment-start "!")
+  (setq-local comment-end "")
+  (setq-local comment-multi-line nil)
 
   ;; This used to be "^\\$[ \t]*![ \t]*" which looks more correct.
   ;; The drawback was that you couldn't make empty comment lines by pressing
   ;; C-M-j repeatedly - only the first line became a comment line.
   ;; This version has the drawback that the "$" can be anywhere in the line,
   ;; and something inappropriate might be interpreted as a comment.
-  (set (make-local-variable 'comment-start-skip) "\\$[ \t]*![ \t]*")
+  (setq-local comment-start-skip "\\$[ \t]*![ \t]*")
 
   (if (boundp 'imenu-generic-expression)
       (progn (setq imenu-generic-expression dcl-imenu-generic-expression)
@@ -620,7 +619,7 @@ There is some minimal font-lock support (see vars
   (make-local-variable 'dcl-electric-reindent-regexps)
 
   ;; font lock
-  (set (make-local-variable 'font-lock-defaults) dcl-font-lock-defaults)
+  (setq-local font-lock-defaults dcl-font-lock-defaults)
 
   (tempo-use-tag-list 'dcl-tempo-tags))
 
@@ -2192,6 +2191,8 @@ otherwise return nil."
 
 (provide 'dcl-mode)
 
+(make-obsolete-variable 'dcl-mode-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 (run-hooks 'dcl-mode-load-hook)		; for your customizations
 
 ;;; dcl-mode.el ends here

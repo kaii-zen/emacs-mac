@@ -454,7 +454,7 @@ manipulated as follows:
 				      (symbol-name major-mode))
 			(match-string 1 (symbol-name major-mode))))
 	 (mode (intern (format "gnus-agent-%s-mode" buffer))))
-    (set (make-local-variable 'gnus-agent-mode) t)
+    (setq-local gnus-agent-mode t)
     (set mode nil)
     (set (make-local-variable mode) t)
     ;; Set up the menu.
@@ -603,11 +603,22 @@ manipulated as follows:
   (gnus))
 
 ;;;###autoload
-(defun gnus-slave-unplugged (&optional arg)
-  "Read news as a slave unplugged."
+(defun gnus-child-unplugged (&optional arg)
+  "Read news as a child unplugged."
   (interactive "P")
   (setq gnus-plugged nil)
-  (gnus arg nil 'slave))
+  (gnus arg nil 'child))
+
+;;;###autoload
+(defun gnus-slave-unplugged (&optional arg)
+  "Read news as a child unplugged."
+  (interactive "P")
+  (setq gnus-plugged nil)
+  (gnus arg nil 'child))
+(make-obsolete 'gnus-slave-unplugged 'gnus-child-unplugged "28.1")
+
+
+
 
 ;;;###autoload
 (defun gnus-agentize ()
@@ -799,7 +810,7 @@ be a select method."
   (let ((gnus-command-method method)
 	(gnus-agent nil))
     (when (file-exists-p (gnus-agent-lib-file "flags"))
-      (set-buffer (get-buffer-create " *Gnus Agent flag synchronize*"))
+      (set-buffer (gnus-get-buffer-create " *Gnus Agent flag synchronize*"))
       (erase-buffer)
       (nnheader-insert-file-contents (gnus-agent-lib-file "flags"))
       (cond ((null gnus-plugged)
@@ -1045,8 +1056,8 @@ article's mark is toggled."
 (defun gnus-agent-get-undownloaded-list ()
   "Construct list of articles that have not been downloaded."
   (let ((gnus-command-method (gnus-find-method-for-group gnus-newsgroup-name)))
-    (when (set (make-local-variable 'gnus-newsgroup-agentized)
-               (gnus-agent-method-p gnus-command-method))
+    (when (setq-local gnus-newsgroup-agentized
+                      (gnus-agent-method-p gnus-command-method))
       (let* ((alist (gnus-agent-load-alist gnus-newsgroup-name))
              (headers (sort (mapcar (lambda (h)
                                       (mail-header-number h))
@@ -1293,7 +1304,7 @@ downloaded into the agent."
           ;; gnus doesn't waste resources trying to fetch them.
 
           ;; NOTE: I don't do this for smaller gaps (< 100) as I don't
-          ;; want to modify the local file everytime someone restarts
+          ;; want to modify the local file every time someone restarts
           ;; gnus.  The small gap will cause a tiny performance hit
           ;; when gnus tries, and fails, to retrieve the articles.
           ;; Still that should be smaller than opening a buffer,
@@ -1429,7 +1440,7 @@ downloaded into the agent."
     (let ((file (gnus-agent-lib-file "history")))
       (when (file-exists-p file)
 	(nnheader-insert-file-contents file))
-      (set (make-local-variable 'gnus-agent-file-name) file))))
+      (setq-local gnus-agent-file-name file))))
 
 (defun gnus-agent-close-history ()
   (when (gnus-buffer-live-p gnus-agent-current-history)
@@ -1890,7 +1901,8 @@ article numbers will be returned."
     articles))
 
 (defsubst gnus-agent-read-article-number ()
-  "Reads the article number at point.  Returns nil when a valid article number can not be read."
+  "Read the article number at point.
+Return nil when a valid article number can not be read."
 
   (when (looking-at "[0-9]+\t")
     (read (current-buffer))))
@@ -3556,22 +3568,21 @@ articles in every agentized group? "))
                 (let* (delete-recursive
 		       files f
                        (delete-recursive
-                        (function
-                         (lambda (f-or-d)
-                           (ignore-errors
-                             (if (file-directory-p f-or-d)
-                                 (condition-case nil
-                                     (delete-directory f-or-d)
-                                   (file-error
-				    (setq files (directory-files f-or-d))
-				    (while files
-				      (setq f (pop files))
-				      (or (member f '("." ".."))
-					  (funcall delete-recursive
-						   (nnheader-concat
-						    f-or-d f))))
-                                    (delete-directory f-or-d)))
-                               (delete-file f-or-d)))))))
+                        (lambda (f-or-d)
+                          (ignore-errors
+                            (if (file-directory-p f-or-d)
+                                (condition-case nil
+                                    (delete-directory f-or-d)
+                                  (file-error
+                                   (setq files (directory-files f-or-d))
+                                   (while files
+                                     (setq f (pop files))
+                                     (or (member f '("." ".."))
+                                         (funcall delete-recursive
+                                                  (nnheader-concat
+                                                   f-or-d f))))
+                                   (delete-directory f-or-d)))
+                              (delete-file f-or-d))))))
                   (funcall delete-recursive dir)))))))))
 
 ;;;###autoload
@@ -3923,7 +3934,7 @@ If REREAD is not nil, downloaded articles are marked as unread."
 		   (mm-with-unibyte-buffer
 		     (nnheader-insert-file-contents file)
 		     (nnheader-remove-body)
-		     (setq header (nnheader-parse-naked-head)))
+		     (setq header (nnheader-parse-head t)))
 		   (setf (mail-header-number header) (car downloaded))
 		   (if nov-arts
 		       (let ((key (concat "^" (int-to-string (car nov-arts))
@@ -4022,11 +4033,11 @@ If REREAD is not nil, downloaded articles are marked as unread."
 	 (list (list
 		(if (listp reread)
 		    reread
-		  (delq nil (mapcar (function (lambda (c)
-						(cond ((eq reread t)
-						       (car c))
-						      ((cdr c)
-						       (car c)))))
+                  (delq nil (mapcar (lambda (c)
+                                      (cond ((eq reread t)
+                                             (car c))
+                                            ((cdr c)
+                                             (car c))))
 				    gnus-agent-article-alist)))
 		'del '(read)))
 	 gnus-command-method)

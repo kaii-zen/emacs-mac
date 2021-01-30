@@ -36,6 +36,14 @@ GNUstep port and post-20 update by Adrian Robert (arobert@cogsci.ucsd.edu)
 #include "coding.h"
 
 
+#if defined (NS_IMPL_GNUSTEP) || MAC_OS_X_VERSION_MAX_ALLOWED < 1070
+# define COLORSPACE_NAME NSCalibratedRGBColorSpace
+#else
+# define COLORSPACE_NAME                                                \
+  ((ns_use_srgb_colorspace && NSAppKitVersionNumber >= NSAppKitVersionNumber10_7) \
+   ? NSDeviceRGBColorSpace : NSCalibratedRGBColorSpace)
+#endif
+
 
 /* ==========================================================================
 
@@ -44,6 +52,55 @@ GNUstep port and post-20 update by Adrian Robert (arobert@cogsci.ucsd.edu)
    compilation and possible difficulties on some platforms.
 
    ========================================================================== */
+
+bool
+ns_can_use_native_image_api (Lisp_Object type)
+{
+  NSString *imageType = @"unknown";
+  NSArray *types;
+
+  NSTRACE ("ns_can_use_native_image_api");
+
+  if (EQ (type, Qnative_image))
+    return YES;
+
+#ifdef NS_IMPL_COCOA
+  /* Work out the UTI of the image type.  */
+  if (EQ (type, Qjpeg))
+    imageType = @"public.jpeg";
+  else if (EQ (type, Qpng))
+    imageType = @"public.png";
+  else if (EQ (type, Qgif))
+    imageType = @"com.compuserve.gif";
+  else if (EQ (type, Qtiff))
+    imageType = @"public.tiff";
+  else if (EQ (type, Qsvg))
+    imageType = @"public.svg-image";
+
+  /* NSImage also supports a host of other types such as PDF and BMP,
+     but we don't yet support these in image.c.  */
+
+  types = [NSImage imageTypes];
+#else
+  /* Work out the image type.  */
+  if (EQ (type, Qjpeg))
+    imageType = @"jpeg";
+  else if (EQ (type, Qpng))
+    imageType = @"png";
+  else if (EQ (type, Qgif))
+    imageType = @"gif";
+  else if (EQ (type, Qtiff))
+    imageType = @"tiff";
+
+  types = [NSImage imageFileTypes];
+#endif
+
+  /* Check if the type is supported on this system.  */
+  if ([types indexOfObject:imageType] != NSNotFound)
+    return YES;
+  else
+    return NO;
+}
 
 void *
 ns_image_from_XBM (char *bits, int width, int height,
@@ -150,6 +207,12 @@ ns_image_set_transform (void *img, double m[3][3])
   [(EmacsImage *)img setTransform:m];
 }
 
+void
+ns_image_set_smoothing (void *img, bool smooth)
+{
+  [(EmacsImage *)img setSmoothing:smooth];
+}
+
 unsigned long
 ns_get_pixel (void *img, int x, int y)
 {
@@ -172,6 +235,11 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
   [(EmacsImage *)img setAlphaAtX: x Y: y to: a];
 }
 
+size_t
+ns_image_size_in_bytes (void *img)
+{
+  return [(EmacsImage *)img sizeInBytes];
+}
 
 /* ==========================================================================
 
@@ -194,7 +262,7 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
   found = ENCODE_FILE (found);
 
   image = [[EmacsImage alloc] initByReferencingFile:
-                     [NSString stringWithUTF8String: SSDATA (found)]];
+                     [NSString stringWithLispString: found]];
 
   image->bmRep = nil;
 #ifdef NS_IMPL_COCOA
@@ -210,7 +278,7 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
 
   [image setSize: NSMakeSize([imgRep pixelsWide], [imgRep pixelsHigh])];
 
-  [image setName: [NSString stringWithUTF8String: SSDATA (file)]];
+  [image setName: [NSString stringWithLispString: file]];
 
   return image;
 }
@@ -222,6 +290,18 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
   [bmRep release];
   [transform release];
   [super dealloc];
+}
+
+
+- (id)copyWithZone:(NSZone *)zone
+{
+  EmacsImage *copy = [super copyWithZone:zone];
+
+  copy->stippleMask = [stippleMask copyWithZone:zone];
+  copy->bmRep = [bmRep copyWithZone:zone];
+  copy->transform = [transform copyWithZone:zone];
+
+  return copy;
 }
 
 
@@ -240,7 +320,7 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
                                     pixelsWide: w pixelsHigh: h
                                     bitsPerSample: 8 samplesPerPixel: 4
                                     hasAlpha: YES isPlanar: YES
-                                    colorSpaceName: NSCalibratedRGBColorSpace
+                                    colorSpaceName: COLORSPACE_NAME
                                     bytesPerRow: w bitsPerPixel: 0];
 
   [bmRep getBitmapDataPlanes: planes];
@@ -360,7 +440,7 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
                                   /* keep things simple for now */
                                   bitsPerSample: 8 samplesPerPixel: 4 /*RGB+A*/
                                   hasAlpha: YES isPlanar: YES
-                                  colorSpaceName: NSCalibratedRGBColorSpace
+                                  colorSpaceName: COLORSPACE_NAME
                                   bytesPerRow: width bitsPerPixel: 0];
 
   [bmRep getBitmapDataPlanes: pixmapData];
@@ -407,9 +487,10 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
   if (pixmapData[0] != NULL)
     {
       int loc = x + y * [self size].width;
-      return (pixmapData[3][loc] << 24) /* alpha */
-       | (pixmapData[0][loc] << 16) | (pixmapData[1][loc] << 8)
-       | (pixmapData[2][loc]);
+      return (((unsigned long) pixmapData[3][loc] << 24) /* alpha */
+              | ((unsigned long) pixmapData[0][loc] << 16)
+              | ((unsigned long) pixmapData[1][loc] << 8)
+              | (unsigned long) pixmapData[2][loc]);
     }
   else
     {
@@ -540,5 +621,28 @@ ns_set_alpha (void *img, int x, int y, unsigned char a)
     = { m[0][0], m[0][1], m[1][0], m[1][1], m[2][0], m[2][1]};
   [transform setTransformStruct:tm];
 }
+
+- (void)setSmoothing: (BOOL) s
+{
+  smoothing = s;
+}
+
+/* Approximate allocated size of image in bytes.  */
+- (size_t) sizeInBytes
+{
+  size_t bytes = 0;
+  NSImageRep *rep;
+  NSEnumerator *reps = [[self representations] objectEnumerator];
+  while ((rep = (NSImageRep *) [reps nextObject]))
+    {
+      if ([rep respondsToSelector: @selector (bytesPerRow)])
+        {
+          NSBitmapImageRep *bmr = (NSBitmapImageRep *) rep;
+          bytes += [bmr bytesPerRow] * [bmr numberOfPlanes] * [bmr pixelsHigh];
+        }
+    }
+  return bytes;
+}
+
 
 @end

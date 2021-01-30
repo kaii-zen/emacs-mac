@@ -50,15 +50,14 @@
 ;; performance further, as well as making the so-long activity more obvious to
 ;; the user.  These kinds of minified files are typically not intended to be
 ;; edited, so not providing the usual editing mode in such cases will rarely be
-;; an issue.  However, should the user wish to do so, the original state of the
-;; buffer may be reinstated by calling `so-long-revert' (the key binding for
-;; which is advertised when the major mode change occurs).  If you prefer that
-;; the major mode not be changed, the `so-long-minor-mode' action can be
-;; configured.
+;; an issue.  However, you can reinstate the original state of the buffer by
+;; calling `so-long-revert' (the key binding of which is advertised when the major
+;; mode change occurs).  If you prefer that the major mode not be changed, you
+;; can customize the `so-long-minor-mode' action.
 ;;
 ;; The user options `so-long-action' and `so-long-action-alist' determine what
-;; will happen when `so-long' and `so-long-revert' are invoked, allowing
-;; alternative actions (including custom actions) to be configured.  As well as
+;; actions `so-long' and `so-long-revert' will take.  This allows you to configure
+;; alternative actions (including custom actions).  As well as
 ;; the major and minor mode actions provided by this library, `longlines-mode'
 ;; is also supported by default as an alternative action.
 ;;
@@ -389,7 +388,7 @@
 ;; this caveat is the `mode' pseudo-variable, which is processed early in all
 ;; versions of Emacs, and can be set to `so-long-mode' if desired.
 
-;;; * Change Log:
+;; * Change Log:
 ;;
 ;; 1.0   - Included in Emacs 27.1, and in GNU ELPA for prior versions of Emacs.
 ;;       - New global mode `global-so-long-mode' to enable/disable the library.
@@ -833,7 +832,7 @@ available in Emacs versions < 27).  For more information refer to info node
 `(emacs) Bidirectional Editing' and info node `(elisp) Bidirectional Display'.
 
 Buffers are made read-only by default to prevent potentially-slow editing from
-occurring inadvertantly, as buffers with excessively long lines are likely not
+occurring inadvertently, as buffers with excessively long lines are likely not
 intended to be edited manually."
   :type '(alist :key-type (variable :tag "Variable")
                 :value-type (sexp :tag "Value"))
@@ -1001,8 +1000,10 @@ This command calls `so-long' with the selected action as an argument.")
     (cl-letf (((symbol-function 'finder-summary) #'ignore))
       (finder-commentary "so-long"))
     (let ((inhibit-read-only t))
-      (when (looking-at "^Commentary:\n\n")
-        (replace-match "so-long.el\n\n"))
+      (if (looking-at "^Commentary:\n\n")
+          (replace-match "so-long.el\n\n")
+        (insert "so-long.el\n")
+        (forward-line 1))
       (save-excursion
         (while (re-search-forward "^-+$" nil :noerror)
           (replace-match ""))))

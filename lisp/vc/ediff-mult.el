@@ -113,7 +113,6 @@
 (require 'ediff-wind)
 (require 'ediff-util)
 
-
 ;; meta-buffer
 (ediff-defvar-local ediff-meta-buffer nil "")
 (ediff-defvar-local ediff-parent-meta-buffer nil "")
@@ -182,7 +181,7 @@ directories.")
 (defvar ediff-filtering-regexp-history nil "")
 
 (defcustom ediff-default-filtering-regexp nil
-  "The default regular expression used as a filename filter in multifile comparisons.
+  "Default regular expression used as a filename filter in multifile comparisons.
 Should be a sexp.  For instance (car ediff-filtering-regexp-history) or nil."
   :type 'sexp                           ; yuck - why not just a regexp?
   :risky t)
@@ -1172,7 +1171,7 @@ behavior."
 	  ;; abbreviate the file name, if file exists
 	  (if (and (not (stringp fname)) (< file-size -1))
 	      "-------"		; file doesn't exist
-	    (ediff-truncate-string-left
+	    (string-truncate-left
 	     (ediff-abbreviate-file-name fname)
 	     max-filename-width)))))))
 
@@ -1266,7 +1265,7 @@ Useful commands:
 	(if (= (mod membership-code ediff-membership-code1) 0) ; dir1
 	    (let ((beg (point)))
 	      (insert (format "%-27s"
-			      (ediff-truncate-string-left
+			      (string-truncate-left
 			       (ediff-abbreviate-file-name
 				(if (file-directory-p (concat dir1 file))
 				    (file-name-as-directory file)
@@ -1281,7 +1280,7 @@ Useful commands:
 	(if (= (mod membership-code ediff-membership-code2) 0) ; dir2
 	    (let ((beg (point)))
 	      (insert (format "%-26s"
-			      (ediff-truncate-string-left
+			      (string-truncate-left
 			       (ediff-abbreviate-file-name
 				(if (file-directory-p (concat dir2 file))
 				    (file-name-as-directory file)
@@ -1295,7 +1294,7 @@ Useful commands:
 	    (if (= (mod membership-code ediff-membership-code3) 0) ; dir3
 		(let ((beg (point)))
 		  (insert (format " %-25s"
-				  (ediff-truncate-string-left
+				  (string-truncate-left
 				   (ediff-abbreviate-file-name
 				    (if (file-directory-p (concat dir3 file))
 					(file-name-as-directory file)
@@ -1808,11 +1807,9 @@ all marked sessions must be active."
 		 (ediff-show-meta-buffer session-buf)
 	       (setq regexp
 		     (read-string
-		      (if (stringp default-regexp)
-			  (format
-			   "Filter filenames through regular expression (default %s): "
-			   default-regexp)
-			"Filter filenames through regular expression: ")
+                      (format-prompt
+                       "Filter filenames through regular expression"
+                       default-regexp)
 		      nil
 		      'ediff-filtering-regexp-history
 		      (eval ediff-default-filtering-regexp t)))
@@ -2320,7 +2317,7 @@ If this is a session registry buffer then just bury it."
 	 (meta-patchbuf ediff-meta-patchbufer)
 	 session-buf beg-marker end-marker)
 
-    (if (or (file-directory-p file) (string-match "/dev/null" file))
+    (if (or (file-directory-p file) (string-match null-device file))
 	(user-error "`%s' is not an ordinary file" (file-name-as-directory file)))
     (setq session-buf (ediff-get-session-buffer info)
 	  beg-marker (ediff-get-session-objB-name info)

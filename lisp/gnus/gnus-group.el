@@ -49,10 +49,10 @@
 (autoload 'gnus-agent-total-fetched-for "gnus-agent")
 (autoload 'gnus-cache-total-fetched-for "gnus-cache")
 
-(autoload 'gnus-group-make-nnir-group "nnir")
-
 (autoload 'gnus-cloud-upload-all-data "gnus-cloud")
 (autoload 'gnus-cloud-download-all-data "gnus-cloud")
+
+(autoload 'gnus-topic-find-groups "gnus-topic")
 
 (defcustom gnus-no-groups-message "No news is good news"
   "Message displayed by Gnus when no groups are available."
@@ -60,7 +60,7 @@
   :type 'string)
 
 (defcustom gnus-keep-same-level nil
-  "Non-nil means that the next newsgroup after the current will be on the same level.
+  "Non-nil means that the newsgroup after this one will be on the same level.
 When you type, for instance, `n' after reading the last article in the
 current newsgroup, you will go to the next newsgroup.  If this variable
 is nil, the next newsgroup will be the next from the group
@@ -663,7 +663,8 @@ simple manner."
   "D" gnus-group-enter-directory
   "f" gnus-group-make-doc-group
   "w" gnus-group-make-web-group
-  "G" gnus-group-make-nnir-group
+  "G" gnus-group-read-ephemeral-search-group
+  "g" gnus-group-make-search-group
   "M" gnus-group-read-ephemeral-group
   "r" gnus-group-rename-group
   "R" gnus-group-make-rss-group
@@ -909,7 +910,8 @@ simple manner."
 	["Add the help group" gnus-group-make-help-group t]
 	["Make a doc group..." gnus-group-make-doc-group t]
 	["Make a web group..." gnus-group-make-web-group t]
-	["Make a search group..." gnus-group-make-nnir-group t]
+	["Read a search group..." gnus-group-read-ephemeral-search-group t]
+	["Make a search group..." gnus-group-make-search-group t]
 	["Make a virtual group..." gnus-group-make-empty-virtual t]
 	["Add a group to a virtual..." gnus-group-add-to-virtual t]
 	["Make an ephemeral group..." gnus-group-read-ephemeral-group t]
@@ -1096,7 +1098,7 @@ When FORCE, rebuild the tool bar."
 					gnus-group-tool-bar-zap-list
 					'gnus-group-mode-map)))
       (if map
-	  (set (make-local-variable 'tool-bar-map) map))))
+	  (setq-local tool-bar-map map))))
   gnus-group-tool-bar-map)
 
 (define-derived-mode gnus-group-mode gnus-mode "Group"
@@ -1129,8 +1131,8 @@ The following commands are available:
   (gnus-update-group-mark-positions)
   (when gnus-use-undo
     (gnus-undo-mode 1))
-  (when gnus-slave
-    (gnus-slave-mode)))
+  (when gnus-child
+    (gnus-child-mode)))
 
 (defun gnus-update-group-mark-positions ()
   (save-excursion
@@ -1743,7 +1745,8 @@ already.  If INFO-UNCHANGED is non-nil, dribble buffer is not updated."
 	(prog1
 	    (setq mode-line-buffer-identification
 		  (gnus-mode-line-buffer-identification
-		   (list mode-string)))
+		   (list (propertize mode-string
+				     'face 'mode-line-buffer-id))))
 	  (set-buffer-modified-p modified))))))
 
 (defun gnus-group-group-name ()
@@ -1768,7 +1771,7 @@ already.  If INFO-UNCHANGED is non-nil, dribble buffer is not updated."
   (get-text-property (point-at-bol) 'gnus-unread))
 
 (defun gnus-group-new-mail (group)
-  (if (nnmail-new-mail-p (gnus-group-real-name group))
+  (if (nnmail-new-mail-p group)
       gnus-new-mail-mark
     ?\s))
 
@@ -2411,13 +2414,13 @@ the bug number, and browsing the URL must return mbox output."
   (require 'bug-reference)
   (let ((def (cond ((thing-at-point-looking-at bug-reference-bug-regexp 500)
                     (match-string 2))
-                   ((number-at-point)))))
+                   ((and (number-at-point)
+                         (abs (number-at-point)))))))
     ;; Pass DEF as the value of COLLECTION instead of DEF because:
     ;; a) null input should not cause DEF to be returned and
     ;; b) TAB and M-n still work this way.
-    (or (completing-read-multiple
-	 (format "Bug IDs%s: " (if def (format " (default %s)" def) ""))
-	 (and def (list (format "%s" def))))
+    (or (completing-read-multiple (format-prompt "Bug IDs" def)
+				  (and def (list (format "%s" def))))
 	def)))
 
 (defun gnus-read-ephemeral-bug-group (ids mbox-url &optional window-conf)
@@ -3165,6 +3168,113 @@ mail messages or news articles in files that have numeric names."
      (gnus-group-real-name group)
      (list 'nndir (gnus-group-real-name group) (list 'nndir-directory dir)))))
 
+(autoload 'gnus-group-topic-name "gnus-topic")
+(autoload 'gnus-search-make-spec "gnus-search")
+
+;; Temporary to make group creation easier
+(defun gnus-group-make-search-group (no-parse &optional specs)
+  "Make a group based on a search.
+Prompt for a search query and determine the groups to search as
+follows: if called from the *Server* buffer search all groups
+belonging to the server on the current line; if called from the
+*Group* buffer search any marked groups, or the group on the
+current line, or all the groups under the current topic.  A
+prefix arg NO-PARSE means that Gnus should not parse the search
+query before passing it to the underlying search engine.  A
+non-nil SPECS arg must be an alist with `search-query-spec' and
+`search-group-spec' keys, and skips all prompting."
+  (interactive "P")
+  (let ((name (gnus-read-group "Group name: ")))
+    (with-current-buffer gnus-group-buffer
+      (let* ((group-spec
+	      (or
+	       (cdr (assq 'search-group-spec specs))
+	       (cdr (assq 'nnir-group-spec specs))
+	       (if (gnus-server-server-name)
+		   (list (list (gnus-server-server-name)))
+		 (seq-group-by
+		  (lambda (elt) (gnus-group-server elt))
+		  (or gnus-group-marked
+		      (if (gnus-group-group-name)
+			  (list (gnus-group-group-name))
+			(mapcar #'caadr
+				(gnus-topic-find-groups
+				 (gnus-group-topic-name)
+				 nil 'all nil t))))))))
+	     (query-spec
+	      (or
+	       (cdr (assq 'search-query-spec specs))
+	       (cdr (assq 'nnir-query-spec specs))
+	       (gnus-search-make-spec no-parse))))
+	;; If our query came via an old call to nnir, we know not to
+	;; parse the query.
+	(when (assq 'nnir-query-spec specs)
+	  (setf (alist-get 'raw query-spec) t))
+	(gnus-group-make-group
+	 name
+	 (list 'nnselect "nnselect")
+	 nil
+	 (list
+	  (cons 'nnselect-specs
+		(list
+		 (cons 'nnselect-function 'gnus-search-run-query)
+		 (cons 'nnselect-args
+		       (list (cons 'search-query-spec query-spec)
+			     (cons 'search-group-spec group-spec)))))
+	  (cons 'nnselect-artlist nil)))))))
+
+(define-obsolete-function-alias 'gnus-group-make-nnir-group
+  'gnus-group-read-ephemeral-search-group "28.1")
+
+(defun gnus-group-read-ephemeral-search-group (no-parse &optional specs)
+  "Read an nnselect group based on a search.
+Prompt for a search query and determine the groups to search as
+follows: if called from the *Server* buffer search all groups
+belonging to the server on the current line; if called from the
+*Group* buffer search any marked groups, or the group on the
+current line, or all the groups under the current topic.  A
+prefix arg NO-PARSE means that Gnus should not parse the search
+query before passing it to the underlying search engine.  A
+non-nil SPECS arg must be an alist with `search-query-spec' and
+`search-group-spec' keys, and skips all prompting."
+  (interactive "P")
+  (let* ((group-spec
+	  (or (cdr (assq 'search-group-spec specs))
+	      (cdr (assq 'nnir-group-spec specs))
+	      (if (gnus-server-server-name)
+		  (list (list (gnus-server-server-name)))
+		(seq-group-by
+		 (lambda (elt) (gnus-group-server elt))
+		 (or gnus-group-marked
+		     (if (gnus-group-group-name)
+			 (list (gnus-group-group-name))
+		       (mapcar #'caadr
+				(gnus-topic-find-groups
+				 (gnus-group-topic-name)
+				 nil 'all nil t))))))))
+	 (query-spec
+	  (or (cdr (assq 'search-query-spec specs))
+	      (cdr (assq 'nnir-query-spec specs))
+	      (gnus-search-make-spec no-parse))))
+    ;; If our query came via an old call to nnir, we know not to parse
+    ;; the query.
+    (when (assq 'nnir-query-spec specs)
+      (setf (alist-get 'raw query-spec) t))
+    (gnus-group-read-ephemeral-group
+     (concat "nnselect-" (message-unique-id))
+     (list 'nnselect "nnselect")
+     nil
+     (cons (current-buffer) gnus-current-window-configuration)
+     nil nil
+     (list
+      (cons 'nnselect-specs
+	    (list
+	     (cons 'nnselect-function 'gnus-search-run-query)
+	     (cons 'nnselect-args
+		   (list (cons 'search-query-spec query-spec)
+			 (cons 'search-group-spec group-spec)))))
+      (cons 'nnselect-artlist nil)))))
+
 (defun gnus-group-add-to-virtual (n vgroup)
   "Add the current group to a virtual group."
   (interactive
@@ -3600,7 +3710,7 @@ or nil if no action could be taken."
 	 (marks (gnus-info-marks (nth 1 entry)))
 	 (unread (gnus-sequence-of-unread-articles group)))
     ;; Remove entries for this group.
-    (nnmail-purge-split-history (gnus-group-real-name group))
+    (nnmail-purge-split-history group)
     ;; Do the updating only if the newsgroup isn't killed.
     (if (not (numberp (car entry)))
 	(gnus-message 1 "Can't catch up %s; non-active group" group)
@@ -3697,9 +3807,8 @@ Uses the process/prefix convention."
 	(error "No group on the current line"))
       (string-to-number
        (let ((s (read-string
-		 (format "Level (default %s): "
-			 (or (gnus-group-group-level)
-			     gnus-level-default-subscribed)))))
+		 (format-prompt "Level" (or (gnus-group-group-level)
+					    gnus-level-default-subscribed)))))
 	 (if (string-match "^\\s-*$" s)
 	     (int-to-string (or (gnus-group-group-level)
 				gnus-level-default-subscribed))
@@ -3761,10 +3870,10 @@ group line."
      (newsrc
       ;; Toggle subscription flag.
       (gnus-group-change-level
-       newsrc (if level level (if (<= (gnus-info-level (nth 1 newsrc))
-				      gnus-level-subscribed)
-				  (1+ gnus-level-subscribed)
-				gnus-level-default-subscribed)))
+       newsrc (or level (if (<= (gnus-info-level (nth 1 newsrc))
+				gnus-level-subscribed)
+			    (1+ gnus-level-subscribed)
+			  gnus-level-default-subscribed)))
       (unless silent
 	(gnus-group-update-group group)))
      ((and (stringp group)
@@ -3773,7 +3882,7 @@ group line."
       ;; Add new newsgroup.
       (gnus-group-change-level
        group
-       (if level level gnus-level-default-subscribed)
+       (or level gnus-level-default-subscribed)
        (or (and (member group gnus-zombie-list)
 		gnus-level-zombie)
 	   gnus-level-killed)
@@ -4024,9 +4133,9 @@ otherwise all levels below ARG will be scanned too."
     (gnus-run-hooks 'gnus-get-top-new-news-hook)
     (gnus-run-hooks 'gnus-get-new-news-hook)
 
-    ;; Read any slave files.
-    (unless gnus-slave
-      (gnus-master-read-slave-newsrc))
+    ;; Read any child files.
+    (unless gnus-child
+      (gnus-parent-read-child-newsrc))
 
     (gnus-get-unread-articles (gnus-group-default-level arg t)
 			      nil one-level)
@@ -4300,8 +4409,7 @@ The hook `gnus-suspend-gnus-hook' is called before actually suspending."
     ;; Closing all the backends is useful (for instance) when when the
     ;; IP addresses have changed and you need to reconnect.
     (dolist (elem gnus-opened-servers)
-      (gnus-close-server (car elem))
-      (setcar (cdr elem) 'closed))
+      (gnus-close-server (car elem)))
     (when group-buf
       (bury-buffer group-buf)
       (delete-windows-on group-buf t))))

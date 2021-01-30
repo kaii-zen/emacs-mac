@@ -1249,7 +1249,7 @@ Marks propagation has to be enabled for this to work."
 If THREADS is non-nil, enable full threads."
   (let ((args (cons (car command) '(nil t nil))))
     (with-current-buffer
-       (get-buffer-create nnmairix-mairix-output-buffer)
+       (gnus-get-buffer-create nnmairix-mairix-output-buffer)
       (erase-buffer)
       (when (> (length command) 1)
 	(setq args (append args (cdr command))))
@@ -1267,7 +1267,7 @@ If THREADS is non-nil, enable full threads."
   "Call mairix binary with COMMAND and QUERY in raw mode."
   (let ((args (cons (car command) '(nil t nil))))
     (with-current-buffer
-       (get-buffer-create nnmairix-mairix-output-buffer)
+       (gnus-get-buffer-create nnmairix-mairix-output-buffer)
       (erase-buffer)
       (when (> (length command) 1)
         (setq args (append args (cdr command))))
@@ -1404,7 +1404,7 @@ TYPE is either `nov' or `headers'."
   (nnheader-message 7 "nnmairix: Rewriting headers...")
   (cond
    ((eq type 'nov)
-    (let ((buf (get-buffer-create " *nnmairix buffer*"))
+    (let ((buf (gnus-get-buffer-create " *nnmairix buffer*"))
 	  (corr (not (zerop numc)))
 	  (name (buffer-name nntp-server-buffer))
 	  header cur xref)
@@ -1548,9 +1548,8 @@ See %s for details" proc nnmairix-mairix-output-buffer)))
 (defun nnmairix-create-message-line-for-search ()
   "Create message line for interactive query in minibuffer."
   (mapconcat
-   (function
-    (lambda (cur)
-      (format "%c=%s" (car cur) (nth 3 cur))))
+   (lambda (cur)
+     (format "%c=%s" (car cur) (nth 3 cur)))
    nnmairix-interactive-query-parameters ","))
 
 (defun nnmairix-replace-illegal-chars (header)
@@ -1811,13 +1810,12 @@ If VERSION is a string: must be contained in mairix version output."
       (gnus-summary-toggle-header 1)
       (set-buffer gnus-article-buffer)
       (mapcar
-       (function
-	(lambda (field)
-	  (list (car (cddr field))
-		(if (car field)
-		    (nnmairix-replace-illegal-chars
-		     (gnus-fetch-field (car field)))
-		  nil))))
+       (lambda (field)
+         (list (car (cddr field))
+               (if (car field)
+                   (nnmairix-replace-illegal-chars
+                    (gnus-fetch-field (car field)))
+                 nil)))
        nnmairix-widget-fields-list))))
 
 
@@ -1911,14 +1909,13 @@ If WITHVALUES is t, query is based on current article."
     (when (member 'flags nnmairix-widget-other)
       (setq flag
 	    (mapconcat
-	     (function
-	      (lambda (flag)
-		(setq temp
-		      (widget-value (cadr (assoc (car flag) nnmairix-widgets))))
-		(if (string= "yes" temp)
-		    (cadr flag)
-		  (if (string= "no" temp)
-		      (concat "-" (cadr flag))))))
+             (lambda (flag)
+               (setq temp
+                     (widget-value (cadr (assoc (car flag) nnmairix-widgets))))
+               (if (string= "yes" temp)
+                   (cadr flag)
+                 (if (string= "no" temp)
+                     (concat "-" (cadr flag)))))
 	     '(("seen" "s") ("replied" "r") ("flagged" "f")) ""))
       (when (not (zerop (length flag)))
 	(push (concat "F:" flag) query)))
@@ -1968,32 +1965,31 @@ VALUES may contain values for editable fields from current article."
   ;; how can this be done less ugly?
   (let ((ret))
     (mapc
-     (function
-      (lambda (field)
-	(setq field (car (cddr field)))
-	(setq ret
-	      (nconc
-	       (list
-		(list
-		 (concat "c" field)
-		 (widget-create 'checkbox
-				:tag field
-				:notify (lambda (widget &rest ignore)
-					  (nnmairix-widget-toggle-activate widget))
-				nil)))
-	       (list
-		(list
-		 (concat "e" field)
-		 (widget-create 'editable-field
-				:size 60
-				:format (concat " " field ":"
-						(make-string (- 11 (length field)) ?\ )
-						"%v")
-				:value (or (cadr (assoc field values)) ""))))
-	       ret))
-	(widget-insert "\n")
-	;; Deactivate editable field
-	(widget-apply (cadr (nth 1 ret)) :deactivate)))
+     (lambda (field)
+       (setq field (car (cddr field)))
+       (setq ret
+             (nconc
+              (list
+               (list
+                (concat "c" field)
+                (widget-create 'checkbox
+                               :tag field
+                               :notify (lambda (widget &rest ignore)
+                                         (nnmairix-widget-toggle-activate widget))
+                               nil)))
+              (list
+               (list
+                (concat "e" field)
+                (widget-create 'editable-field
+                               :size 60
+                               :format (concat " " field ":"
+                                               (make-string (- 11 (length field)) ?\ )
+                                               "%v")
+                               :value (or (cadr (assoc field values)) ""))))
+              ret))
+       (widget-insert "\n")
+       ;; Deactivate editable field
+       (widget-apply (cadr (nth 1 ret)) :deactivate))
      nnmairix-widget-fields-list)
     ret))
 

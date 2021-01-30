@@ -4,7 +4,7 @@
 
 ;; Author: Anders Lindgren
 ;; Keywords: c, languages, faces
-;; Version: 1.3.1
+;; Old-Version: 1.3.1
 
 ;; This file is part of GNU Emacs.
 
@@ -104,8 +104,6 @@
 
 ;;{{{ Dependencies
 
-(require 'custom)
-(require 'font-lock)
 (require 'cc-mode)
 
 ;;}}}
@@ -168,6 +166,8 @@ deactivated."
   :tag "Load Hook"
   :group 'cwarn
   :type 'hook)
+(make-obsolete-variable 'cwarn-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 ;;}}}
 ;;{{{ The modes

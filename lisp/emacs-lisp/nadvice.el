@@ -5,18 +5,20 @@
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: extensions, lisp, tools
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -314,8 +316,26 @@ is also interactive.  There are 3 cases:
   `(advice--add-function ,where (gv-ref ,(advice--normalize-place place))
                          ,function ,props))
 
+(declare-function comp-subr-trampoline-install "comp")
+
 ;;;###autoload
 (defun advice--add-function (where ref function props)
+  (when (and (featurep 'nativecomp)
+             (subr-primitive-p (gv-deref ref)))
+    (let ((subr-name (intern (subr-name (gv-deref ref)))))
+      ;; Requiring the native compiler to advice `macroexpand' cause a
+      ;; circular dependency in eager macro expansion.
+      ;; uniquify is advising `rename-buffer' while being loaded in
+      ;; loadup.el.  This would require the whole native compiler
+      ;; machinery but we don't want to include it in the dump.
+      ;; Because these two functions are already handled in
+      ;; `comp-never-optimize-functions' we hack the problem this way
+      ;; for now :/
+      (unless (memq subr-name '(macroexpand rename-buffer))
+        ;; Must require explicitly as during bootstrap we have no
+        ;; autoloads.
+        (require 'comp)
+        (comp-subr-trampoline-install subr-name))))
   (let* ((name (cdr (assq 'name props)))
          (a (advice--member-p (or name function) (if name t) (gv-deref ref))))
     (when a

@@ -146,12 +146,23 @@ textual parts.")
   :version "24.4"
   :group 'nnimap)
 
+(define-obsolete-variable-alias
+  'nnimap-split-download-body-default 'nnimap-split-download-body
+  "28.1")
+
+(defcustom nnimap-split-download-body nil
+  "If non-nil, make message bodies available for consideration during splitting.
+This requires downloading the full message from the IMAP server
+during splitting, which may be slow."
+  :version "28.1"
+  :type 'boolean)
+
+(defvar nnimap--split-download-body nil
+  "Like `nnimap-split-download-body', but for internal use.")
+
 (defvar nnimap-process nil)
 
 (defvar nnimap-status-string "")
-
-(defvar nnimap-split-download-body-default nil
-  "Internal variable with default value for `nnimap-split-download-body'.")
 
 (defvar nnimap-keepalive-timer nil)
 (defvar nnimap-process-buffers nil)
@@ -365,10 +376,10 @@ textual parts.")
     (mm-disable-multibyte)
     (buffer-disable-undo)
     (gnus-add-buffer)
-    (set (make-local-variable 'after-change-functions) nil)
-    (set (make-local-variable 'nnimap-object)
-	 (make-nnimap :server (nnoo-current-server 'nnimap)
-		      :initial-resync 0))
+    (setq-local after-change-functions nil) ;FIXME: Why?
+    (setq-local nnimap-object
+                (make-nnimap :server (nnoo-current-server 'nnimap)
+                             :initial-resync 0))
     (push (list buffer (current-buffer)) nnimap-connection-alist)
     (push (current-buffer) nnimap-process-buffers)
     (current-buffer)))
@@ -986,7 +997,10 @@ textual parts.")
                 (when (and (car result) (not can-move))
                   (nnimap-delete-article article))
                 (cons internal-move-group
-                      (or (nnimap-find-uid-response "COPYUID" (caddr result))
+                      (or (nnimap-find-uid-response
+			   "COPYUID"
+			   ;; Server gives different responses for MOVE and COPY.
+			   (if can-move (caddr result) (cadr result)))
                           (nnimap-find-article-by-message-id
                            internal-move-group server message-id
                            nnimap-request-articles-find-limit)))))
@@ -1670,8 +1684,7 @@ If LIMIT, first try to limit the search to the N last articles."
 	  (when (and active
 		     recent
 		     (> (car (last recent)) (cdr active)))
-	    (push (list (cons (gnus-group-real-name group) 0))
-		  nnmail-split-history)))
+	    (push (list (cons group 0)) nnmail-split-history)))
 	;; Note the active level for the next run-through.
 	(gnus-group-set-parameter info 'active (gnus-active group))
 	(gnus-group-set-parameter info 'uidvalidity uidvalidity)
@@ -1684,7 +1697,7 @@ If LIMIT, first try to limit the search to the N last articles."
         (gnus-add-to-range
          (gnus-add-to-range
           (gnus-range-add (gnus-info-read info)
-		          vanished)
+			  vanished)
 	  (cdr (assq '%Flagged flags)))
 	 (cdr (assq '%Seen flags))))
   (let ((marks (gnus-info-marks info)))
@@ -1770,11 +1783,6 @@ If LIMIT, first try to limit the search to the N last articles."
   ;; read it.
   (subst-char-in-region (point-min) (point-max)
 			?\\ ?% t)
-  ;; Remove any MODSEQ entries in the buffer, because they may contain
-  ;; numbers that are too large for 32-bit Emacsen.
-  (while (re-search-forward " MODSEQ ([0-9]+)" nil t)
-    (replace-match "" t t))
-  (goto-char (point-min))
   (let (start end articles groups uidnext elems permanent-flags
 	      uidvalidity vanished highestmodseq)
     (dolist (elem sequences)
@@ -1801,8 +1809,9 @@ If LIMIT, first try to limit the search to the N last articles."
 		 (setq uidvalidity
 		       (and (re-search-forward "UIDVALIDITY \\([0-9]+\\)"
 					       end t)
-			    ;; Store UIDVALIDITY as a string, as it's
-			    ;; too big for 32-bit Emacsen, usually.
+			    ;; Store UIDVALIDITY as a string; before bignums,
+			    ;; it was usually too big for 32-bit Emacsen,
+			    ;; and we don't want to change the format now.
 			    (match-string 1)))
 		 (goto-char start)
 		 (setq vanished
@@ -1849,15 +1858,15 @@ If LIMIT, first try to limit the search to the N last articles."
   (setq nnimap-status-string "Read-only server")
   nil)
 
-(defvar gnus-refer-thread-use-nnir) ;; gnus-sum.el
+(defvar gnus-refer-thread-use-search) ;; gnus-sum.el
 (declare-function gnus-fetch-headers "gnus-sum"
 		  (articles &optional limit force-new dependencies))
 
-(autoload 'nnir-search-thread "nnir")
+(autoload 'nnselect-search-thread "nnselect")
 
 (deffoo nnimap-request-thread (header &optional group server)
-  (if gnus-refer-thread-use-nnir
-      (nnir-search-thread header)
+  (if gnus-refer-thread-use-search
+      (nnselect-search-thread header)
     (when (nnimap-change-group group server)
       (let* ((cmd (nnimap-make-thread-query header))
              (result (with-current-buffer (nnimap-buffer)
@@ -1937,7 +1946,7 @@ Return the server's response to the SELECT or EXAMINE command."
 (defun nnimap-log-buffer ()
   (let ((name "*imap log*"))
     (or (get-buffer name)
-        (with-current-buffer (get-buffer-create name)
+        (with-current-buffer (gnus-get-buffer-create name)
 	  (setq-local window-point-insertion-type t)
           (current-buffer)))))
 
@@ -2102,7 +2111,8 @@ Return the server's response to the SELECT or EXAMINE command."
 		 "BODY.PEEK"
 	       "RFC822.PEEK"))
 	    (cond
-	     (nnimap-split-download-body-default
+             ((or nnimap-split-download-body
+                  nnimap--split-download-body)
 	      "[]")
 	     ((nnimap-ver4-p)
 	      "[HEADER]")

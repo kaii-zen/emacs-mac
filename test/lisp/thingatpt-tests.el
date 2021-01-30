@@ -1,4 +1,4 @@
-;;; thingatpt.el --- tests for thing-at-point.
+;;; thingatpt.el --- tests for thing-at-point.  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
@@ -145,5 +145,49 @@ position to retrieve THING.")
       (search-forward "2ab")
       (should (thing-at-point-looking-at "2abcd"))
       (should (equal (match-data) m2)))))
+
+(ert-deftest test-symbol-thing-1 ()
+  (with-temp-buffer
+    (insert "foo bar zot")
+    (goto-char 4)
+    (should (eq (symbol-at-point) 'foo))
+    (forward-char 1)
+    (should (eq (symbol-at-point) 'bar))
+    (forward-char 1)
+    (should (eq (symbol-at-point) 'bar))
+    (forward-char 1)
+    (should (eq (symbol-at-point) 'bar))
+    (forward-char 1)
+    (should (eq (symbol-at-point) 'bar))
+    (forward-char 1)
+    (should (eq (symbol-at-point) 'zot))))
+
+(ert-deftest test-symbol-thing-2 ()
+  (with-temp-buffer
+    (insert " bar ")
+    (goto-char (point-max))
+    (should (eq (symbol-at-point) nil))
+    (forward-char -1)
+    (should (eq (symbol-at-point) 'bar))))
+
+(ert-deftest test-symbol-thing-2 ()
+  (with-temp-buffer
+    (insert " bar ")
+    (goto-char (point-max))
+    (should (eq (symbol-at-point) nil))
+    (forward-char -1)
+    (should (eq (symbol-at-point) 'bar))))
+
+(ert-deftest test-symbol-thing-3 ()
+  (with-temp-buffer
+    (insert "bar")
+    (goto-char 2)
+    (should (eq (symbol-at-point) 'bar))))
+
+(ert-deftest test-symbol-thing-3 ()
+  (with-temp-buffer
+    (insert "`[[`(")
+    (goto-char 2)
+    (should (eq (symbol-at-point) nil))))
 
 ;;; thingatpt.el ends here

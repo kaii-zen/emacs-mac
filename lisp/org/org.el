@@ -1846,7 +1846,7 @@ link types.  The types are:
 bracket   The recommended [[link][description]] or [[link]] links with hiding.
 angle     Links in angular brackets that may contain whitespace like
           <bbdb:Carsten Dominik>.
-plain     Plain links in normal text, no whitespace, like http://google.com.
+plain     Plain links in normal text, no whitespace, like https://gnu.org.
 radio     Text that is matched by a radio target, see manual for details.
 tag       Tag settings in a headline (link to tag search).
 date      Time stamps (link to calendar).
@@ -4112,7 +4112,8 @@ groups carry important information:
   "Regular expression to match a timestamp time or time range.
 After a match, the following groups carry important information:
 0  the full match
-1  date plus weekday, for back referencing to make sure both times are on the same day
+1  date plus weekday, for back referencing to make sure
+     both times are on the same day
 2  the first time, range or not
 4  the second time, if it is a range.")
 

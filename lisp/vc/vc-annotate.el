@@ -208,9 +208,8 @@ menu items."
   ;; it will become a list, to avoid initial annotations being invisible.
   (add-to-invisibility-spec 'foo)
   (remove-from-invisibility-spec 'foo)
-  (set (make-local-variable 'truncate-lines) t)
-  (set (make-local-variable 'font-lock-defaults)
-       '(vc-annotate-font-lock-keywords t))
+  (setq-local truncate-lines t)
+  (setq-local font-lock-defaults '(vc-annotate-font-lock-keywords t))
   (hack-dir-local-variables-non-file-buffer))
 
 (defun vc-annotate-toggle-annotation-visibility ()
@@ -403,12 +402,12 @@ should be applied to the background or to the foreground."
 	   (let ((def (vc-working-revision buffer-file-name)))
 	     (if (null current-prefix-arg) def
 	       (vc-read-revision
-		(format "Annotate from revision (default %s): " def)
+		(format-prompt "Annotate from revision" def)
 		(list buffer-file-name) nil def)))
 	   (if (null current-prefix-arg)
 	       vc-annotate-display-mode
 	     (float (string-to-number
-		     (read-string "Annotate span days (default 20): "
+		     (read-string (format-prompt "Annotate span days" 20)
 				  nil nil "20")))))))
   (vc-ensure-vc-buffer)
   (setq vc-annotate-display-mode display-mode) ;Not sure why.  --Stef
@@ -449,11 +448,10 @@ should be applied to the background or to the foreground."
         (with-current-buffer temp-buffer-name
           (unless (equal major-mode 'vc-annotate-mode)
             (vc-annotate-mode))
-          (set (make-local-variable 'vc-annotate-backend) backend)
-          (set (make-local-variable 'vc-annotate-parent-file) file)
-          (set (make-local-variable 'vc-annotate-parent-rev) rev)
-          (set (make-local-variable 'vc-annotate-parent-display-mode)
-               display-mode))))
+          (setq-local vc-annotate-backend backend)
+          (setq-local vc-annotate-parent-file file)
+          (setq-local vc-annotate-parent-rev rev)
+          (setq-local vc-annotate-parent-display-mode display-mode))))
 
     (with-current-buffer temp-buffer-name
       (vc-run-delayed
@@ -702,10 +700,10 @@ or OFFSET if present."
 RATIO is the expansion that should be applied to `vc-annotate-color-map'.
 The annotations are relative to the current time, unless overridden by OFFSET."
   (when (/= ratio 1.0)
-    (set (make-local-variable 'vc-annotate-color-map)
+    (setq-local vc-annotate-color-map
 	 (mapcar (lambda (elem) (cons (* (car elem) ratio) (cdr elem)))
 		 vc-annotate-color-map)))
-  (set (make-local-variable 'vc-annotate-offset) offset)
+  (setq-local vc-annotate-offset offset)
   (font-lock-mode 1))
 
 (defun vc-annotate-lines (limit)

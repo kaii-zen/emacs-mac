@@ -4570,7 +4570,7 @@ This function is intended for use in `after-change-functions'."
 
   ;; Comments
   (setq-local comment-start "// ")
-  (setq-local comment-start-skip "\\(//+\\|/\\*+\\)\\s *")
+  (setq-local comment-start-skip "\\(?://+\\|/\\*+\\)\\s *")
   (setq-local comment-end "")
   (setq-local fill-paragraph-function #'js-fill-paragraph)
   (setq-local normal-auto-fill-function #'js-do-auto-fill)
@@ -4591,7 +4591,8 @@ This function is intended for use in `after-change-functions'."
   (setq imenu-create-index-function #'js--imenu-create-index)
 
   ;; for filling, pretend we're cc-mode
-  (c-init-language-vars js-mode)
+  (c-foreign-init-lit-pos-cache)
+  (add-hook 'before-change-functions #'c-foreign-truncate-lit-pos-cache nil t)
   (setq-local comment-line-break-function #'c-indent-new-comment-line)
   (setq-local comment-multi-line t)
   (setq-local electric-indent-chars
@@ -4655,7 +4656,18 @@ could set `js-jsx-syntax' to t in your init file, or in a
 one of the aforementioned options instead of using this mode."
   :group 'js
   (js-jsx-enable)
+  (setq-local comment-region-function #'js-jsx--comment-region)
   (js-use-syntactic-mode-name))
+
+(defun js-jsx--comment-region (beg end &optional arg)
+  (if (or (js-jsx--context)
+          (save-excursion
+            (skip-chars-forward " \t")
+            (js-jsx--looking-at-start-tag-p)))
+      (let ((comment-start "{/* ")
+            (comment-end " */}"))
+        (comment-region-default beg end arg))
+    (comment-region-default beg end arg)))
 
 ;;;###autoload (defalias 'javascript-mode 'js-mode)
 

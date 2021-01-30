@@ -190,9 +190,9 @@ returns the buffer used."
 	(erase-buffer))
       (buffer-enable-undo (current-buffer))
       (diff-mode)
-      (set (make-local-variable 'revert-buffer-function)
-           (lambda (_ignore-auto _noconfirm)
-             (diff-no-select old new switches no-async (current-buffer))))
+      (setq-local revert-buffer-function
+                  (lambda (_ignore-auto _noconfirm)
+                    (diff-no-select old new switches no-async (current-buffer))))
       (setq default-directory thisdir)
       (setq diff-default-directory default-directory)
       (let ((inhibit-read-only t))
@@ -258,6 +258,8 @@ This requires the external program `diff' to be in your `exec-path'."
   (interactive "bBuffer: ")
   (let ((buf (get-buffer (or buffer (current-buffer)))))
     (with-current-buffer (or (buffer-base-buffer buf) buf)
+      (unless buffer-file-name
+        (error "Buffer is not visiting a file"))
       (diff buffer-file-name (current-buffer) nil 'noasync))))
 
 ;;;###autoload

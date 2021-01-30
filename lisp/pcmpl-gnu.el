@@ -65,14 +65,14 @@
   "Find all zipped or unzipped files: the inverse of UNZIP-P."
   (pcomplete-entries
    nil
-   (function
-    (lambda (entry)
-      (when (and (file-readable-p entry)
-		 (file-regular-p entry))
-	(let ((zipped (string-match "\\.\\(t?gz\\|\\(ta\\)?Z\\)\\'"
-				    entry)))
-	  (or (and unzip-p zipped)
-	      (and (not unzip-p) (not zipped)))))))))
+   (lambda (entry)
+     (or (file-directory-p entry)
+         (when (and (file-readable-p entry)
+                    (file-regular-p entry))
+           (let ((zipped (string-match "\\.\\(t?gz\\|\\(ta\\)?Z\\)\\'"
+                                       entry)))
+             (or (and unzip-p zipped)
+                 (and (not unzip-p) (not zipped)))))))))
 
 ;;;###autoload
 (defun pcomplete/bzip2 ()
@@ -91,13 +91,12 @@
   "Find all zipped or unzipped files: the inverse of UNZIP-P."
   (pcomplete-entries
    nil
-   (function
-    (lambda (entry)
-      (when (and (file-readable-p entry)
-		 (file-regular-p entry))
-	(let ((zipped (string-match "\\.\\(t?z2\\|bz2\\)\\'" entry)))
-	  (or (and unzip-p zipped)
-	      (and (not unzip-p) (not zipped)))))))))
+   (lambda (entry)
+     (when (and (file-readable-p entry)
+                (file-regular-p entry))
+       (let ((zipped (string-match "\\.\\(t?z2\\|bz2\\)\\'" entry)))
+         (or (and unzip-p zipped)
+             (and (not unzip-p) (not zipped))))))))
 
 ;;;###autoload
 (defun pcomplete/make ()
@@ -118,7 +117,7 @@
 Return the new list."
   (goto-char (point-min))
   (while (re-search-forward
-	  "^\\s-*\\([^\n#%.$][^:=\n]*\\)\\s-*:[^=]" nil t)
+          "^\\([^\t\n#%.$][^:=\n]*\\)\\s-*:[^=]" nil t)
     (setq targets (nconc (split-string (match-string-no-properties 1))
                          targets)))
   targets)

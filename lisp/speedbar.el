@@ -7,10 +7,12 @@
 
 (defvar speedbar-version "1.0"
   "The current version of speedbar.")
+(make-obsolete-variable 'speedbar-version nil "28.1")
 (defvar speedbar-incompatible-version "0.14beta4"
   "This version of speedbar is incompatible with this version.
 Due to massive API changes (removing the use of the word PATH)
 this version is not backward compatible to 0.14 or earlier.")
+(make-obsolete-variable 'speedbar-incompatible-version nil "28.1")
 
 ;; This file is part of GNU Emacs.
 
@@ -115,7 +117,7 @@ this version is not backward compatible to 0.14 or earlier.")
 
 (require 'easymenu)
 (require 'dframe)
-(require 'sb-image)
+(require 'ezimage)
 
 ;; customization stuff
 (defgroup speedbar nil
@@ -140,6 +142,12 @@ this version is not backward compatible to 0.14 or earlier.")
   :link '(info-link "(speedbar) Version Control")
   :prefix "speedbar-"
   :group 'speedbar)
+
+(defcustom speedbar-use-images ezimage-use-images
+  "Non-nil if speedbar should display icons."
+  :group 'speedbar
+  :version "21.1"
+  :type 'boolean)
 
 ;;; Code:
 
@@ -296,6 +304,8 @@ The default buffer is the buffer in the selected window in the attached frame."
   "Hooks run when speedbar is loaded."
   :group 'speedbar
   :type 'hook)
+(make-obsolete-variable 'speedbar-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defcustom speedbar-reconfigure-keymaps-hook nil
   "Hooks run when the keymaps are regenerated."
@@ -641,7 +651,7 @@ They should include commonly existing directories which are not
 useful.  It is no longer necessary to include version-control
 directories here; see `vc-directory-exclusion-list'."
   :group 'speedbar
-  :type 'string)
+  :type 'regexp)
 
 (defcustom speedbar-file-unshown-regexp
   (let ((nstr "") (noext completion-ignored-extensions))
@@ -654,7 +664,7 @@ directories here; see `vc-directory-exclusion-list'."
   "Regexp matching files we don't want displayed in a speedbar buffer.
 It is generated from the variable `completion-ignored-extensions'."
   :group 'speedbar
-  :type 'string)
+  :type 'regexp)
 
 (defvar speedbar-file-regexp nil
   "Regular expression matching files we know how to expand.
@@ -889,12 +899,9 @@ This basically creates a sparse keymap, and makes its parent be
   "Additional menu items while in file-mode.")
 
 (defvar speedbar-easymenu-definition-trailer
-  (append
-   (if (and (featurep 'custom) (fboundp 'custom-declare-variable))
-       (list ["Customize..." speedbar-customize t]))
-   (list
+  '(["Customize..." speedbar-customize t]
     ["Close" dframe-close-frame t]
-    ["Quit" delete-frame t] ))
+    ["Quit" delete-frame t])
   "Menu items appearing at the end of the speedbar menu.")
 
 (defvar speedbar-desired-buffer nil
@@ -972,10 +979,9 @@ supported at a time.
     (speedbar-set-timer dframe-update-speed)
     )
   ;; Frame modifications
-  (set (make-local-variable 'dframe-delete-frame-function)
-       'speedbar-handle-delete-frame)
+  (setq-local dframe-delete-frame-function 'speedbar-handle-delete-frame)
   ;; hscroll
-  (set (make-local-variable 'auto-hscroll-mode) nil)
+  (setq-local auto-hscroll-mode nil)
   ;; reset the selection variable
   (setq speedbar-last-selected-file nil))
 
@@ -1068,9 +1074,8 @@ in the selected file.
   (save-excursion
     (setq font-lock-keywords nil) ;; no font-locking please
     (setq truncate-lines t)
-    (make-local-variable 'frame-title-format)
-    (setq frame-title-format (concat "Speedbar " speedbar-version)
-	  case-fold-search nil
+    (setq-local frame-title-format "Speedbar")
+    (setq case-fold-search nil
 	  buffer-read-only t)
     (speedbar-set-mode-line-format)
     ;; Add in our dframe hooks.
@@ -1137,6 +1142,7 @@ frame and window to be the currently active frame and window."
 
 (defvar speedbar-previous-menu nil
   "The menu before the last `speedbar-reconfigure-keymaps' was called.")
+(make-obsolete-variable 'speedbar-previous-menu "no longer used." "28.1")
 
 (defun speedbar-reconfigure-keymaps ()
   "Reconfigure the menu-bar in a speedbar frame.
@@ -1188,10 +1194,7 @@ and the existence of packages."
 			 (speedbar-initial-keymap)
 			 ;; This creates a small keymap we can glom the
 			 ;; menu adjustments into.
-			 (speedbar-make-specialized-keymap)))
-      ;; Delete the old menu if applicable.
-      (if speedbar-previous-menu (easy-menu-remove speedbar-previous-menu))
-      (setq speedbar-previous-menu md)
+                         (speedbar-make-specialized-keymap)))
       ;; Now add the new menu
       (easy-menu-define speedbar-menu-map (current-local-map)
         "Speedbar menu" md))
@@ -1382,7 +1385,7 @@ Argument ARG represents to force a refresh past any caches that may exist."
     (if (and (file-exists-p f) (string-match "\\.el\\'" f))
 	(progn
 	  (dframe-select-attached-frame speedbar-frame)
-	  (byte-compile-file f nil)
+          (byte-compile-file f)
 	  (select-frame sf)
 	  (speedbar-reset-scanners)))
     ))
@@ -1703,7 +1706,7 @@ argument."
       (put-text-property start end 'help-echo #'dframe-help-echo))
   (if function (put-text-property start end 'speedbar-function function))
   (if token (put-text-property start end 'speedbar-token token))
-  ;; So far the only text we have is less that 3 chars.
+  ;; So far the only text we have is less than 3 chars.
   (if (<= (- end start) 3)
       (speedbar-insert-image-button-maybe start (- end start)))
   )
@@ -1749,8 +1752,9 @@ This is based on `speedbar-initial-expansion-list-name' referencing
   "Change speedbar's default expansion list to NEW-DEFAULT."
   (interactive
    (list
-    (completing-read (format "Speedbar Mode (default %s): "
-			     speedbar-previously-used-expansion-list-name)
+    (completing-read (format-prompt
+                      "Speedbar Mode"
+		      speedbar-previously-used-expansion-list-name)
 		     speedbar-initial-expansion-mode-alist
 		     nil t "" nil
 		     speedbar-previously-used-expansion-list-name)))
@@ -1808,16 +1812,13 @@ of the special mode functions."
 	      (setq v (intern-soft (concat ms "-speedbar-key-map")))
 	      (if (not v)
 		  nil ;; don't add special keymap
-		(make-local-variable 'speedbar-special-mode-key-map)
-		(setq speedbar-special-mode-key-map
-		      (symbol-value v)))
+                (setq-local speedbar-special-mode-key-map
+                            (symbol-value v)))
 	      (setq v (intern-soft (concat ms "-speedbar-menu-items")))
 	      (if (not v)
 		  nil ;; don't add special menus
-		(make-local-variable 'speedbar-easymenu-definition-special)
-		(setq speedbar-easymenu-definition-special
-		      (symbol-value v)))
-	      )))))))
+                (setq-local speedbar-easymenu-definition-special
+                            (symbol-value v))))))))))
 
 (defun speedbar-remove-localized-speedbar-support (buffer)
   "Remove any traces that BUFFER supports speedbar in a specialized way."
@@ -1866,9 +1867,9 @@ matches the user directory ~, then it is replaced with a ~.
 INDEX is not used, but is required by the caller."
   (let* ((tilde (expand-file-name "~/"))
 	 (dd (expand-file-name directory))
-	 (junk (string-match (regexp-quote tilde) dd))
+	 (junk (string-prefix-p "~/" dd))
 	 (displayme (if junk
-			(concat "~/" (substring dd (match-end 0)))
+			(concat "~/" (substring dd 2 nil))
 		      dd))
 	 (p (point)))
     (if (string-match "^~[/\\]?\\'" displayme) (setq displayme tilde))
@@ -3230,19 +3231,21 @@ With universal argument ARG, flush cached data."
   "Expand the line under the cursor and all descendants.
 Optional argument ARG indicates that any cache should be flushed."
   (interactive "P")
-  (speedbar-expand-line arg)
-  ;; Now, inside the area expanded here, expand all subnodes of
-  ;; the same descendant type.
-  (save-excursion
-    (speedbar-next 1) ;; Move into the list.
-    (let ((err nil))
-      (while (not err)
-	(condition-case nil
-	    (progn
-	      (speedbar-expand-line-descendants arg)
-	      (speedbar-restricted-next 1))
-	  (error (setq err t))))))
-  )
+  (save-restriction
+    (narrow-to-region (line-beginning-position)
+                      (line-beginning-position 2))
+    (speedbar-expand-line arg)
+    ;; Now, inside the area expanded here, expand all subnodes of
+    ;; the same descendant type.
+    (save-excursion
+      (speedbar-next 1) ;; Move into the list.
+      (let ((err nil))
+        (while (not err)
+	  (condition-case nil
+	      (progn
+	        (speedbar-expand-line-descendants arg)
+	        (speedbar-restricted-next 1))
+	    (error (setq err t))))))))
 
 (defun speedbar-contract-line-descendants ()
   "Expand the line under the cursor and all descendants."
@@ -4021,6 +4024,68 @@ TEXT is the buffer's name, TOKEN and INDENT are unused."
 	   (add-to-list 'font-lock-global-modes 'speedbar-mode t)
 	 (setq font-lock-global-modes (delq 'speedbar-mode
 					    font-lock-global-modes)))))
+
+;;; Image management
+
+(defvar speedbar-expand-image-button-alist
+  '(("<+>" . ezimage-directory-plus)
+    ("<->" . ezimage-directory-minus)
+    ("< >" . ezimage-directory)
+    ("[+]" . ezimage-page-plus)
+    ("[-]" . ezimage-page-minus)
+    ("[?]" . ezimage-page)
+    ("[ ]" . ezimage-page)
+    ("{+}" . ezimage-box-plus)
+    ("{-}" . ezimage-box-minus)
+    ("<M>" . ezimage-mail)
+    ("<d>" . ezimage-document-tag)
+    ("<i>" . ezimage-info-tag)
+    (" =>" . ezimage-tag)
+    (" +>" . ezimage-tag-gt)
+    (" ->" . ezimage-tag-v)
+    (">"   . ezimage-tag)
+    ("@"   . ezimage-tag-type)
+    ("  @" . ezimage-tag-type)
+    ("*"   . ezimage-checkout)
+    ("#"   . ezimage-object)
+    ("!"   . ezimage-object-out-of-date)
+    ("//"  . ezimage-label)
+    ("%"   . ezimage-lock)
+    )
+  "List of text and image associations.")
+
+(defun speedbar-insert-image-button-maybe (start length)
+  "Insert an image button based on text starting at START for LENGTH chars.
+If buttontext is unknown, just insert that text.
+If we have an image associated with it, use that image."
+  (when speedbar-use-images
+    (let ((ezimage-expand-image-button-alist
+	   speedbar-expand-image-button-alist))
+      (ezimage-insert-image-button-maybe start length))))
+
+(defun speedbar-image-dump ()
+  "Dump out the current state of the Speedbar image alist.
+See `speedbar-expand-image-button-alist' for details."
+  (interactive)
+  (with-output-to-temp-buffer "*Speedbar Images*"
+    (with-current-buffer "*Speedbar Images*"
+      (goto-char (point-max))
+      (insert "Speedbar image cache.\n\n")
+      (let ((start (point)) (end nil))
+	(insert "Image\tText\tImage Name")
+	(setq end (point))
+	(insert "\n")
+	(put-text-property start end 'face 'underline))
+      (let ((ia speedbar-expand-image-button-alist))
+	(while ia
+	  (let ((start (point)))
+	    (insert (car (car ia)))
+	    (insert "\t")
+	    (speedbar-insert-image-button-maybe start
+						(length (car (car ia))))
+	    (insert (car (car ia)) "\t" (format "%s" (cdr (car ia))) "\n"))
+	  (setq ia (cdr ia)))))))
+
 
 (provide 'speedbar)
 

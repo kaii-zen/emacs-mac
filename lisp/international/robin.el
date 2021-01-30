@@ -1,4 +1,4 @@
-;;; robin.el --- yet another input method (smaller than quail)
+;;; robin.el --- yet another input method (smaller than quail)  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -424,8 +424,7 @@ While this input method is active, the variable
 	(add-hook 'minibuffer-exit-hook 'robin-exit-from-minibuffer))
     (run-hooks 'input-method-activate-hook
 	       'robin-activate-hook)
-    (set (make-local-variable 'input-method-function)
-	 'robin-input-method)))
+    (setq-local input-method-function 'robin-input-method)))
 
 (define-obsolete-variable-alias
   'robin-inactivate-hook

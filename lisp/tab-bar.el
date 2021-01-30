@@ -95,6 +95,45 @@ Possible modifier keys are `control', `meta', `shift', `hyper', `super' and
   :version "27.1")
 
 
+(defun tab-bar--define-keys ()
+  "Install key bindings for switching between tabs if the user has configured them."
+  (when tab-bar-select-tab-modifiers
+    (global-set-key (vector (append tab-bar-select-tab-modifiers (list ?0)))
+                    'tab-bar-switch-to-recent-tab)
+    (dotimes (i 9)
+      (global-set-key (vector (append tab-bar-select-tab-modifiers
+                                      (list (+ i 1 ?0))))
+                      'tab-bar-select-tab)))
+  ;; Don't override user customized key bindings
+  (unless (global-key-binding [(control tab)])
+    (global-set-key [(control tab)] 'tab-next))
+  (unless (global-key-binding [(control shift tab)])
+    (global-set-key [(control shift tab)] 'tab-previous))
+  (unless (global-key-binding [(control shift iso-lefttab)])
+    (global-set-key [(control shift iso-lefttab)] 'tab-previous)))
+
+(defun tab-bar--load-buttons ()
+  "Load the icons for the tab buttons."
+  (when (and tab-bar-new-button
+             (not (get-text-property 0 'display tab-bar-new-button)))
+    ;; This file is pre-loaded so only here we can use the right data-directory:
+    (add-text-properties 0 (length tab-bar-new-button)
+                         `(display (image :type xpm
+                                          :file "tabs/new.xpm"
+                                          :margin (2 . 0)
+                                          :ascent center))
+                         tab-bar-new-button))
+
+  (when (and tab-bar-close-button
+             (not (get-text-property 0 'display tab-bar-close-button)))
+    ;; This file is pre-loaded so only here we can use the right data-directory:
+    (add-text-properties 0 (length tab-bar-close-button)
+                         `(display (image :type xpm
+                                          :file "tabs/close.xpm"
+                                          :margin (2 . 0)
+                                          :ascent center))
+                         tab-bar-close-button)))
+
 (define-minor-mode tab-bar-mode
   "Toggle the tab bar in all graphical frames (Tab Bar mode)."
   :global t
@@ -110,43 +149,10 @@ Possible modifier keys are `control', `meta', `shift', `hyper', `super' and
               (cons (cons 'tab-bar-lines val)
                     (assq-delete-all 'tab-bar-lines
                                      default-frame-alist)))))
-
-  (when (and tab-bar-mode tab-bar-new-button
-             (not (get-text-property 0 'display tab-bar-new-button)))
-    ;; This file is pre-loaded so only here we can use the right data-directory:
-    (add-text-properties 0 (length tab-bar-new-button)
-                         `(display (image :type xpm
-                                          :file "tabs/new.xpm"
-                                          :margin (2 . 0)
-                                          :ascent center))
-                         tab-bar-new-button))
-
-  (when (and tab-bar-mode tab-bar-close-button
-             (not (get-text-property 0 'display tab-bar-close-button)))
-    ;; This file is pre-loaded so only here we can use the right data-directory:
-    (add-text-properties 0 (length tab-bar-close-button)
-                         `(display (image :type xpm
-                                          :file "tabs/close.xpm"
-                                          :margin (2 . 0)
-                                          :ascent center))
-                         tab-bar-close-button))
-
+  (when tab-bar-mode
+    (tab-bar--load-buttons))
   (if tab-bar-mode
-      (progn
-        (when tab-bar-select-tab-modifiers
-          (global-set-key (vector (append tab-bar-select-tab-modifiers (list ?0)))
-                          'tab-bar-switch-to-recent-tab)
-          (dotimes (i 9)
-            (global-set-key (vector (append tab-bar-select-tab-modifiers
-                                            (list (+ i 1 ?0))))
-                            'tab-bar-select-tab)))
-        ;; Don't override user customized key bindings
-        (unless (global-key-binding [(control tab)])
-          (global-set-key [(control tab)] 'tab-next))
-        (unless (global-key-binding [(control shift tab)])
-          (global-set-key [(control shift tab)] 'tab-previous))
-        (unless (global-key-binding [(control shift iso-lefttab)])
-          (global-set-key [(control shift iso-lefttab)] 'tab-previous)))
+      (tab-bar--define-keys)
     ;; Unset only keys bound by tab-bar
     (when (eq (global-key-binding [(control tab)]) 'tab-next)
       (global-unset-key [(control tab)]))
@@ -181,14 +187,26 @@ on a console which has no window system but does have a mouse."
         ;; Clicking anywhere outside existing tabs will add a new tab
         (tab-bar-new-tab)))))
 
-;; Used in the Show/Hide menu, to have the toggle reflect the current frame.
 (defun toggle-tab-bar-mode-from-frame (&optional arg)
   "Toggle tab bar on or off, based on the status of the current frame.
+Used in the Show/Hide menu, to have the toggle reflect the current frame.
 See `tab-bar-mode' for more information."
   (interactive (list (or current-prefix-arg 'toggle)))
   (if (eq arg 'toggle)
       (tab-bar-mode (if (> (frame-parameter nil 'tab-bar-lines) 0) 0 1))
     (tab-bar-mode arg)))
+
+(defun toggle-frame-tab-bar (&optional frame)
+  "Toggle tab bar of FRAME.
+This is useful when you want to enable the tab bar individually
+on each new frame when the global `tab-bar-mode' is disabled,
+or when you want to disable the tab bar individually on each
+new frame when the global `tab-bar-mode' is enabled, by using
+
+  (add-hook 'after-make-frame-functions 'toggle-frame-tab-bar)"
+  (interactive)
+  (set-frame-parameter frame 'tab-bar-lines
+                       (if (> (frame-parameter frame 'tab-bar-lines) 0) 0 1)))
 
 (defvar tab-bar-map (make-sparse-keymap)
   "Keymap for the tab bar.
@@ -218,18 +236,31 @@ If the value is `1', then hide the tab bar when it has only one tab,
 and show it again once more tabs are created.
 If nil, always keep the tab bar hidden.  In this case it's still
 possible to use persistent named window configurations by relying on
-keyboard commands `tab-new', `tab-close', `tab-next', `tab-switcher', etc."
+keyboard commands `tab-new', `tab-close', `tab-next', `tab-switcher', etc.
+
+Setting this variable directly does not take effect; please customize
+it (see the info node `Easy Customization'), then it will automatically
+update the tab bar on all frames according to the new value.
+
+To enable or disable the tab bar individually on each frame,
+you can use the command `toggle-frame-tab-bar'."
   :type '(choice (const :tag "Always" t)
                  (const :tag "When more than one tab" 1)
                  (const :tag "Never" nil))
   :initialize 'custom-initialize-default
   :set (lambda (sym val)
          (set-default sym val)
-         (tab-bar-mode
-          (if (or (eq val t)
-                  (and (natnump val)
-                       (> (length (funcall tab-bar-tabs-function)) val)))
-              1 -1)))
+         ;; Preload button images
+         (tab-bar-mode 1)
+         ;; Then handle each frame individually
+         (dolist (frame (frame-list))
+           (set-frame-parameter
+            frame 'tab-bar-lines
+            (if (or (eq val t)
+                    (and (natnump val)
+                         (> (length (funcall tab-bar-tabs-function frame))
+                            val)))
+                1 0))))
   :group 'tab-bar
   :version "27.1")
 
@@ -295,6 +326,16 @@ If nil, don't show it at all."
 
 (defvar tab-bar-forward-button " > "
   "Button for going forward in tab history.")
+
+(defcustom tab-bar-history-buttons-show t
+  "Show back and forward buttons when `tab-bar-history-mode' is enabled."
+  :type 'boolean
+  :initialize 'custom-initialize-default
+  :set (lambda (sym val)
+         (set-default sym val)
+         (force-mode-line-update))
+  :group 'tab-bar
+  :version "28.1")
 
 (defcustom tab-bar-tab-hints nil
   "Show absolute numbers on tabs in the tab bar before the tab name.
@@ -363,22 +404,18 @@ to `tab-bar-tab-name-truncated'."
   :group 'tab-bar
   :version "27.1")
 
-(defvar tab-bar-tab-name-ellipsis nil)
+(defvar tab-bar-tab-name-ellipsis t)
 
 (defun tab-bar-tab-name-truncated ()
   "Generate tab name from the buffer of the selected window.
 Truncate it to the length specified by `tab-bar-tab-name-truncated-max'.
 Append ellipsis `tab-bar-tab-name-ellipsis' in this case."
-  (let ((tab-name (buffer-name (window-buffer (minibuffer-selected-window))))
-        (ellipsis (cond
-                   (tab-bar-tab-name-ellipsis)
-                   ((char-displayable-p ?…) "…")
-                   ("..."))))
+  (let ((tab-name (buffer-name (window-buffer (minibuffer-selected-window)))))
     (if (< (length tab-name) tab-bar-tab-name-truncated-max)
         tab-name
       (propertize (truncate-string-to-width
                    tab-name tab-bar-tab-name-truncated-max nil nil
-                   ellipsis)
+                   tab-bar-tab-name-ellipsis)
                   'help-echo tab-name))))
 
 
@@ -412,6 +449,30 @@ Return its existing value or a new value."
     tabs))
 
 
+(defcustom tab-bar-tab-name-format-function #'tab-bar-tab-name-format-default
+  "Function to format a tab name.
+Function gets two arguments, the tab and its number, and should return
+the formatted tab name to display in the tab bar."
+  :type 'function
+  :initialize 'custom-initialize-default
+  :set (lambda (sym val)
+         (set-default sym val)
+         (force-mode-line-update))
+  :group 'tab-bar
+  :version "28.1")
+
+(defun tab-bar-tab-name-format-default (tab i)
+  (let ((current-p (eq (car tab) 'current-tab)))
+    (propertize
+     (concat (if tab-bar-tab-hints (format "%d " i) "")
+             (alist-get 'name tab)
+             (or (and tab-bar-close-button-show
+                      (not (eq tab-bar-close-button-show
+                               (if current-p 'non-selected 'selected)))
+                      tab-bar-close-button)
+                 ""))
+     'face (if current-p 'tab-bar-tab 'tab-bar-tab-inactive))))
+
 (defun tab-bar-make-keymap-1 ()
   "Generate an actual keymap from `tab-bar-map', without caching."
   (let* ((separator (or tab-bar-separator (if window-system " " "|")))
@@ -419,7 +480,7 @@ Return its existing value or a new value."
          (tabs (funcall tab-bar-tabs-function)))
     (append
      '(keymap (mouse-1 . tab-bar-handle-mouse))
-     (when tab-bar-history-mode
+     (when (and tab-bar-history-mode tab-bar-history-buttons-show)
        `((sep-history-back menu-item ,separator ignore)
          (history-back
           menu-item ,tab-bar-back-button tab-bar-history-back
@@ -437,25 +498,13 @@ Return its existing value or a new value."
           ((eq (car tab) 'current-tab)
            `((current-tab
               menu-item
-              ,(propertize (concat (if tab-bar-tab-hints (format "%d " i) "")
-                                   (alist-get 'name tab)
-                                   (or (and tab-bar-close-button-show
-                                            (not (eq tab-bar-close-button-show
-                                                     'non-selected))
-                                            tab-bar-close-button) ""))
-                           'face 'tab-bar-tab)
+              ,(funcall tab-bar-tab-name-format-function tab i)
               ignore
               :help "Current tab")))
           (t
            `((,(intern (format "tab-%i" i))
               menu-item
-              ,(propertize (concat (if tab-bar-tab-hints (format "%d " i) "")
-                                   (alist-get 'name tab)
-                                   (or (and tab-bar-close-button-show
-                                            (not (eq tab-bar-close-button-show
-                                                     'selected))
-                                            tab-bar-close-button) ""))
-                           'face 'tab-bar-tab-inactive)
+              ,(funcall tab-bar-tab-name-format-function tab i)
               ,(or
                 (alist-get 'binding tab)
                 `(lambda ()
@@ -665,7 +714,8 @@ to get the name of the last visited tab, the second last, and so on."
    (let* ((recent-tabs (mapcar (lambda (tab)
                                  (alist-get 'name tab))
                                (tab-bar--tabs-recent))))
-     (list (completing-read "Switch to tab by name (default recent): "
+     (list (completing-read (format-prompt "Switch to tab by name"
+                                           (car recent-tabs))
                             recent-tabs nil nil nil nil recent-tabs))))
   (tab-bar-select-tab (1+ (or (tab-bar--tab-index-by-name name) 0))))
 
@@ -765,6 +815,9 @@ After the tab is created, the hooks in
          (from-tab (tab-bar--tab)))
 
     (when tab-bar-new-tab-choice
+      ;; Handle the case when it's called in the active minibuffer.
+      (when (minibuffer-selected-window)
+        (select-window (minibuffer-selected-window)))
       (delete-other-windows)
       ;; Create a new window to get rid of old window parameters
       ;; (e.g. prev/next buffers) of old window.
@@ -799,11 +852,16 @@ After the tab is created, the hooks in
       (run-hook-with-args 'tab-bar-tab-post-open-functions
                           (nth to-index tabs)))
 
-    (when (and (not tab-bar-mode)
-               (or (eq tab-bar-show t)
-                   (and (natnump tab-bar-show)
-                        (> (length tabs) tab-bar-show))))
+    (cond
+     ((eq tab-bar-show t)
       (tab-bar-mode 1))
+     ((and (natnump tab-bar-show)
+           (> (length (funcall tab-bar-tabs-function)) tab-bar-show)
+           (zerop (frame-parameter nil 'tab-bar-lines)))
+      (progn
+        (tab-bar--load-buttons)
+        (tab-bar--define-keys)
+        (set-frame-parameter nil 'tab-bar-lines 1))))
 
     (force-mode-line-update)
     (unless tab-bar-mode
@@ -840,8 +898,10 @@ If `recent', select the most recently visited tab."
   "Defines what to do when the last tab is closed.
 If nil, do nothing and show a message, like closing the last window or frame.
 If `delete-frame', delete the containing frame, as a web browser would do.
-If `tab-bar-mode-disable', disable tab-bar-mode so that tabs no longer show in the frame.
-If the value is a function, call that function with the tab to be closed as an argument."
+If `tab-bar-mode-disable', disable tab-bar-mode so that tabs no longer show in
+the frame.
+If the value is a function, call that function with the tab to be closed as an
+ argument."
   :type '(choice (const    :tag "Do nothing and show message" nil)
                  (const    :tag "Close the containing frame" delete-frame)
                  (const    :tag "Disable tab-bar-mode" tab-bar-mode-disable)
@@ -936,10 +996,11 @@ for the last tab on a frame is determined by
                 tab-bar-closed-tabs)
           (set-frame-parameter nil 'tabs (delq close-tab tabs)))
 
-        (when (and tab-bar-mode
-                   (and (natnump tab-bar-show)
-                        (<= (length tabs) tab-bar-show)))
-          (tab-bar-mode -1))
+        (when (and (not (zerop (frame-parameter nil 'tab-bar-lines)))
+                   (natnump tab-bar-show)
+                   (<= (length (funcall tab-bar-tabs-function))
+                       tab-bar-show))
+          (set-frame-parameter nil 'tab-bar-lines 0))
 
         (force-mode-line-update)
         (unless tab-bar-mode
@@ -975,10 +1036,11 @@ for the last tab on a frame is determined by
           (run-hook-with-args 'tab-bar-tab-pre-close-functions (nth index tabs) nil)))
       (set-frame-parameter nil 'tabs (list (nth current-index tabs)))
 
-      (when (and tab-bar-mode
-                 (and (natnump tab-bar-show)
-                      (<= 1 tab-bar-show)))
-        (tab-bar-mode -1))
+      (when (and (not (zerop (frame-parameter nil 'tab-bar-lines)))
+                 (natnump tab-bar-show)
+                 (<= (length (funcall tab-bar-tabs-function))
+                     tab-bar-show))
+        (set-frame-parameter nil 'tab-bar-lines 0))
 
       (force-mode-line-update)
       (unless tab-bar-mode
@@ -1197,18 +1259,11 @@ Type q to remove the list of window configurations from the display.
 The first column shows `D' for a window configuration you have
 marked for deletion."
   (interactive)
-  (let ((dir default-directory)
-        (minibuf (minibuffer-selected-window)))
-    (let ((tab-bar-show nil)) ; don't enable tab-bar-mode if it's disabled
+  (let ((dir default-directory))
+    (let ((tab-bar-new-tab-choice t)
+          ;; Don't enable tab-bar-mode if it's disabled
+          (tab-bar-show nil))
       (tab-bar-new-tab))
-    ;; Handle the case when it's called in the active minibuffer.
-    (when minibuf (select-window (minibuffer-selected-window)))
-    (delete-other-windows)
-    ;; Create a new window to replace the existing one, to not break the
-    ;; window parameters (e.g. prev/next buffers) of the window just saved
-    ;; to the window configuration.  So when a saved window is restored,
-    ;; its parameters left intact.
-    (split-window) (delete-window)
     (let ((switch-to-buffer-preserve-window-point nil))
       (switch-to-buffer (tab-switcher-noselect)))
     (setq default-directory dir))
@@ -1483,8 +1538,7 @@ This is an action function for buffer display, see Info
 node `(elisp) Buffer Display Action Functions'.  It should be
 called only by `display-buffer' or a function directly or
 indirectly called by the latter."
-  (let* ((tab-name (alist-get 'tab-name alist))
-         (reusable-frames (alist-get 'reusable-frames alist))
+  (let* ((reusable-frames (alist-get 'reusable-frames alist))
          (reusable-tab (when reusable-frames
                          (tab-bar-get-buffer-tab buffer reusable-frames))))
     (if reusable-tab
@@ -1496,17 +1550,46 @@ indirectly called by the latter."
             (tab-bar-select-tab (1+ index)))
           (when (get-buffer-window buffer frame)
             (select-window (get-buffer-window buffer frame))))
+      (let ((tab-name (alist-get 'tab-name alist)))
+        (when (functionp tab-name)
+          (setq tab-name (funcall tab-name buffer alist)))
+        (if tab-name
+            (let ((tab-index (tab-bar--tab-index-by-name tab-name)))
+              (if tab-index
+                  (progn
+                    (tab-bar-select-tab (1+ tab-index))
+                    (when (get-buffer-window buffer)
+                      (select-window (get-buffer-window buffer))))
+                (display-buffer-in-new-tab buffer alist)))
+          (display-buffer-in-new-tab buffer alist))))))
+
+(defun display-buffer-in-new-tab (buffer alist)
+  "Display BUFFER in a new tab.
+ALIST is an association list of action symbols and values.  See
+Info node `(elisp) Buffer Display Action Alists' for details of
+such alists.
+
+Like `display-buffer-in-tab', but always creates a new tab unconditionally,
+without checking if a suitable tab already exists.
+
+If ALIST contains a `tab-name' entry, it creates a new tab with that name
+and displays BUFFER in a new tab.  The `tab-name' entry can be a function,
+then it is called with two arguments: BUFFER and ALIST, and should return
+the tab name.  When a `tab-name' entry is omitted, create a new tab without
+an explicit name.
+
+This is an action function for buffer display, see Info
+node `(elisp) Buffer Display Action Functions'.  It should be
+called only by `display-buffer' or a function directly or
+indirectly called by the latter."
+  (let ((tab-bar-new-tab-choice t))
+    (tab-bar-new-tab)
+    (let ((tab-name (alist-get 'tab-name alist)))
       (when (functionp tab-name)
         (setq tab-name (funcall tab-name buffer alist)))
-      (if tab-name
-          (let ((tab-index (tab-bar--tab-index-by-name tab-name)))
-            (if tab-index
-                (tab-bar-select-tab (1+ tab-index))
-              (let ((tab-bar-new-tab-choice t))
-                (tab-bar-new-tab)
-                (tab-bar-rename-tab tab-name))))
-        (let ((tab-bar-new-tab-choice t))
-          (tab-bar-new-tab))))))
+      (when tab-name
+        (tab-bar-rename-tab tab-name)))
+    (window--display-buffer buffer (selected-window) 'tab alist)))
 
 (defun switch-to-buffer-other-tab (buffer-or-name &optional norecord)
   "Switch to buffer BUFFER-OR-NAME in another tab.
@@ -1514,8 +1597,7 @@ Like \\[switch-to-buffer-other-frame] (which see), but creates a new tab."
   (interactive
    (list (read-buffer-to-switch "Switch to buffer in other tab: ")))
   (display-buffer (window-normalize-buffer-to-switch-to buffer-or-name)
-                  '((display-buffer-in-tab
-                     display-buffer-same-window)
+                  '((display-buffer-in-tab)
                     (inhibit-same-window . nil))
                   norecord))
 
@@ -1534,6 +1616,39 @@ Like \\[find-file-other-frame] (which see), but creates a new tab."
           value)
       (switch-to-buffer-other-tab value))))
 
+(defun find-file-read-only-other-tab (filename &optional wildcards)
+  "Edit file FILENAME, in another tab, but don't allow changes.
+Like \\[find-file-other-frame] (which see), but creates a new tab.
+
+Like \\[find-file-other-tab], but marks buffer as read-only.
+Use \\[read-only-mode] to permit editing."
+  (interactive
+   (find-file-read-args "Find file read-only in other tab: "
+                        (confirm-nonexistent-file-or-buffer)))
+  (find-file--read-only (lambda (filename wildcards)
+                          (window-buffer
+                           (find-file-other-tab filename wildcards)))
+                        filename wildcards))
+
+(defun other-tab-prefix ()
+  "Display the buffer of the next command in a new tab.
+The next buffer is the buffer displayed by the next command invoked
+immediately after this command (ignoring reading from the minibuffer).
+Creates a new tab before displaying the buffer, or switches to the tab
+that already contains that buffer.
+When `switch-to-buffer-obey-display-actions' is non-nil,
+`switch-to-buffer' commands are also supported."
+  (interactive)
+  (display-buffer-override-next-command
+   (lambda (buffer alist)
+     (cons (progn
+             (display-buffer-in-tab
+              buffer (append alist '((inhibit-same-window . nil))))
+             (selected-window))
+           'tab))
+   nil "[other-tab]")
+  (message "Display next command buffer in a new tab..."))
+
 (define-key tab-prefix-map "2" 'tab-new)
 (define-key tab-prefix-map "1" 'tab-close-other)
 (define-key tab-prefix-map "0" 'tab-close)
@@ -1544,6 +1659,8 @@ Like \\[find-file-other-frame] (which see), but creates a new tab."
 (define-key tab-prefix-map "b" 'switch-to-buffer-other-tab)
 (define-key tab-prefix-map "f" 'find-file-other-tab)
 (define-key tab-prefix-map "\C-f" 'find-file-other-tab)
+(define-key tab-prefix-map "\C-r" 'find-file-read-only-other-tab)
+(define-key tab-prefix-map "t" 'other-tab-prefix)
 
 
 (provide 'tab-bar)

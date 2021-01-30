@@ -7558,7 +7558,8 @@ With a prefix argument, do so in all agenda buffers."
   "Filter lines in the agenda buffer that have a specific category.
 The category is that of the current line.
 With a `\\[universal-argument]' prefix argument, exclude the lines of that category.
-When there is already a category filter in place, this command removes the filter."
+When there is already a category filter in place, this command removes the
+filter."
   (interactive "P")
   (if (and org-agenda-filtered-by-category
 	   org-agenda-category-filter)
@@ -7734,9 +7735,9 @@ the variable `org-agenda-auto-exclude-function'."
 	   (negate (equal strip-or-accumulate '(4)))
 	   (cf (mapconcat #'identity org-agenda-category-filter ""))
 	   (tf (mapconcat #'identity org-agenda-tag-filter ""))
-	   (rpl-fn (lambda (c) (replace-regexp-in-string "^\+" "" (or (car c) ""))))
-	   (ef (replace-regexp-in-string "^\+" "" (or (car org-agenda-effort-filter) "")))
-	   (rf (replace-regexp-in-string "^\+" "" (or (car org-agenda-regexp-filter) "")))
+	   (rpl-fn (lambda (c) (replace-regexp-in-string "^\\+" "" (or (car c) ""))))
+	   (ef (replace-regexp-in-string "^\\+" "" (or (car org-agenda-effort-filter) "")))
+	   (rf (replace-regexp-in-string "^\\+" "" (or (car org-agenda-regexp-filter) "")))
 	   (ff (concat cf tf ef (when (not (equal rf "")) (concat "/" rf "/"))))
 	   (f-string (completing-read
 		      (concat

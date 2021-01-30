@@ -152,7 +152,7 @@
   ("EFnet: EU, PL, Warszawa" EFnet "irc.efnet.pl" 6667)
   ("EFnet: EU, RU, Moscow" EFnet "irc.rt.ru" ((6661 6669)))
   ("EFnet: EU, SE, Dalarna" EFnet "irc.du.se" ((6666 6669)))
-  ("EFnet: EU, SE, Gothenberg" EFnet "irc.hemmet.chalmers.se" ((6666 7000)))
+  ("EFnet: EU, SE, Gothenburg" EFnet "irc.hemmet.chalmers.se" ((6666 7000)))
   ("EFnet: EU, SE, Sweden" EFnet "irc.light.se" 6667)
   ("EFnet: EU, UK, London (carrier)" EFnet "irc.carrier1.net.uk" ((6666 6669)))
   ("EFnet: EU, UK, London (demon)" EFnet "efnet.demon.co.uk" ((6665 6669)))
@@ -190,9 +190,9 @@
   ("Fraggers: Random server" Fraggers "irc.fraggers.co.uk" ((6661 6669) (7000 7001) ))
   ("FreedomChat: Random server" FreedomChat "chat.freedomchat.net" 6667)
   ("FreedomIRC: Random server" FreedomIRC "irc.freedomirc.net" 6667)
-  ("Freenode: Random server" freenode "irc.freenode.net" 6667)
-  ("Freenode: Random EU server" freenode "irc.eu.freenode.net" 6667)
-  ("Freenode: Random US server" freenode "irc.us.freenode.net" 6667)
+  ("Freenode: Random server" freenode "chat.freenode.net" 6667)
+  ("Freenode: Random EU server" freenode "chat.eu.freenode.net" 6667)
+  ("Freenode: Random US server" freenode "chat.us.freenode.net" 6667)
   ("FunNet: Random server" FunNet "irc.funnet.org" 6667)
   ("Galaxynet: Random server" GalaxyNet "irc.galaxynet.org" ((6662 6668) 7000 ))
   ("Galaxynet: AU, NZ, Auckland" GalaxyNet "auckland.nz.galaxynet.org" ((6661 6669)))
@@ -756,8 +756,8 @@ Return the name of this server's network as a symbol."
   (erc-with-server-buffer
     (intern (downcase (symbol-name erc-network)))))
 
-(erc-make-obsolete 'erc-current-network 'erc-network
-		   "Obsolete since erc-networks 1.5")
+(make-obsolete 'erc-current-network 'erc-network
+               "Obsolete since erc-networks 1.5")
 
 (defun erc-network-name ()
   "Return the name of the current network as a string."
@@ -812,7 +812,7 @@ As an example:
   (let* ((completion-ignore-case t)
 	 (net (intern
 	       (completing-read "Network: "
-				(erc-delete-dups
+				(delete-dups
 				 (mapcar (lambda (x)
 					   (list (symbol-name (nth 1 x))))
 					 erc-server-alist)))))

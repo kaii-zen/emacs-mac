@@ -20,6 +20,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'ert-x)
 
 (require 'wid-edit)
 (require 'cus-edit)
@@ -99,10 +100,8 @@
 ;; This is demonstrating bug#34027.
 (ert-deftest custom--test-theme-variables ()
   "Test variables setting with enabling / disabling a custom theme."
-  :expected-result :failed
   ;; We load custom-resources/custom--test-theme.el.
-  (let ((custom-theme-load-path
-         `(,(expand-file-name "custom-resources" (file-name-directory #$)))))
+  (let ((custom-theme-load-path `(,(ert-resource-directory))))
     (load-theme 'custom--test 'no-confirm 'no-enable)
     ;; The variables have still their initial values.
     (should (equal custom--test-user-option 'foo))
@@ -115,15 +114,10 @@
     (should (equal custom--test-user-option 'baz))
     (should (equal custom--test-variable 'baz))
 
+    ;; Enable and then disable.
     (enable-theme 'custom--test)
-    ;; The variables have the theme values.
-    (should (equal custom--test-user-option 'bar))
-    (should (equal custom--test-variable 'bar))
-
     (disable-theme 'custom--test)
     ;; The variables should have the changed values, by reverting.
-    ;; This doesn't work as expected.  Instead, they have their
-    ;; initial values `foo'.
     (should (equal custom--test-user-option 'baz))
     (should (equal custom--test-variable 'baz))))
 
@@ -150,6 +144,26 @@
                               (concat
                                (widget-apply field :value-to-internal origvalue)
                                "bar"))))))
+
+(defconst custom-test-admin-cus-test
+  (expand-file-name "admin/cus-test.el" source-directory))
+
+(declare-function cus-test-opts custom-test-admin-cus-test)
+
+(ert-deftest check-for-wrong-custom-types ()
+  :tags '(:expensive-test)
+  (skip-unless (file-readable-p custom-test-admin-cus-test))
+  (load custom-test-admin-cus-test)
+  (should (null (cus-test-opts t))))
+
+(ert-deftest custom-test-enable-theme-keeps-settings ()
+  "Test that enabling a theme doesn't change its settings."
+  (let* ((custom-theme-load-path `(,(ert-resource-directory)))
+         settings)
+    (load-theme 'custom--test 'no-confirm 'no-enable)
+    (setq settings (get 'custom--test 'theme-settings))
+    (enable-theme 'custom--test)
+    (should (equal settings (get 'custom--test 'theme-settings)))))
 
 (defcustom custom--test-local-option 'initial
   "Buffer-local user option for testing."

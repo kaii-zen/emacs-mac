@@ -123,13 +123,12 @@
 ;;  full advantage of this package
 ;;
 ;;  (add-hook 'term-mode-hook
-;;  	      (function
-;;  	       (lambda ()
-;;  	             (setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *")
-;;  	             (setq-local mouse-yank-at-point t)
-;;  	             (setq-local transient-mark-mode nil)
-;;  	             (auto-fill-mode -1)
-;;  	             (setq tab-width 8 ))))
+;;            (lambda ()
+;;              (setq term-prompt-regexp "^[^#$%>\n]*[#$%>] *")
+;;              (setq-local mouse-yank-at-point t)
+;;              (setq-local transient-mark-mode nil)
+;;              (auto-fill-mode -1)
+;;              (setq tab-width 8)))
 ;;
 ;;             ----------------------------------------
 ;;
@@ -241,9 +240,9 @@
 ;;		printf '\033AnSiTu %s\n' "$USER"
 ;;		printf '\033AnSiTc %s\n' "$PWD"
 ;;
-;;		cd()    { command cd    "$@"; printf '\033AnSiTc %s\n' "$PWD"; }
-;;		pushd() { command pushd "$@"; printf '\033AnSiTc %s\n' "$PWD"; }
-;;		popd()  { command popd  "$@"; printf '\033AnSiTc %s\n' "$PWD"; }
+;;		cd()    { command cd    "$@" && printf '\033AnSiTc %s\n' "$PWD"; }
+;;		pushd() { command pushd "$@" && printf '\033AnSiTc %s\n' "$PWD"; }
+;;		popd()  { command popd  "$@" && printf '\033AnSiTc %s\n' "$PWD"; }
 ;;
 ;;		# Use custom dircolors in term buffers.
 ;;		# eval $(dircolors $HOME/.emacs_dircolors)
@@ -265,7 +264,7 @@
 ;; M-p     term-previous-input           Cycle backwards in input history
 ;; M-n     term-next-input               Cycle forwards
 ;; M-r     term-previous-matching-input  Previous input matching a regexp
-;; M-s     comint-next-matching-input    Next input that matches
+;; M-s     term-next-matching-input      Next input that matches
 ;; return  term-send-input
 ;; C-c C-a term-bol                      Beginning of line; skip prompt.
 ;; C-d     term-delchar-or-maybe-eof     Delete char unless at end of buff.
@@ -300,17 +299,13 @@
 ;; so it is important to increase it if there are protocol-relevant changes.
 (defconst term-protocol-version "0.96")
 
-(eval-when-compile (require 'ange-ftp))
-(eval-when-compile (require 'cl-lib))
-(require 'ring)
-(require 'ehelp)
+(eval-when-compile
+  (require 'ange-ftp)
+  (require 'cl-lib))
 (require 'comint) ; Password regexp.
-
-(declare-function ring-empty-p "ring" (ring))
-(declare-function ring-ref "ring" (ring index))
-(declare-function ring-insert-at-beginning "ring" (ring item))
-(declare-function ring-length "ring" (ring))
-(declare-function ring-insert "ring" (ring item))
+(require 'ehelp)
+(require 'ring)
+(require 'shell)
 
 (defgroup term nil
   "General command interpreter in a window."
@@ -370,8 +365,8 @@ not allowed.")
 (defvar-local term-scroll-end nil
   "Bottom-most line (inclusive) of the scrolling region.
 `term-scroll-end' must be in the range [0,term-height).  In addition, its
-value has to be greater than `term-scroll-start', i.e. one line scroll regions are
-not allowed.")
+value has to be greater than `term-scroll-start', i.e. one line scroll regions
+are not allowed.")
 (defvar term-pager-count nil
   "Number of lines before we need to page; if nil, paging is disabled.")
 (defvar term-saved-cursor nil)
@@ -393,11 +388,6 @@ by moving term-home-marker.  It is set to t if there is a
 (defvar term-pager-old-filter) ; Saved process-filter while paging.
 (defvar-local term-line-mode-buffer-read-only nil
   "The `buffer-read-only' state to set in `term-line-mode'.")
-
-(defcustom explicit-shell-file-name nil
-  "If non-nil, is file name to use for explicitly requested inferior shell."
-  :type '(choice (const nil) file)
-  :group 'term)
 
 (defvar term-prompt-regexp "^"
   "Regexp to recognize prompts in the inferior process.
@@ -467,6 +457,11 @@ Customize this option to nil if you want the previous behavior."
   :type 'boolean
   :group 'term)
 
+(defcustom term-set-terminal-size nil
+  "If non-nil, set the LINES and COLUMNS environment variables."
+  :type 'boolean
+  :version "28.1")
+
 (defcustom term-char-mode-point-at-process-mark t
   "If non-nil, keep point at the process mark in char mode.
 
@@ -500,6 +495,14 @@ See variable `term-scroll-show-maximum-output'.
 This variable is buffer-local."
   :type 'boolean
   :group 'term)
+
+(defcustom term-scroll-snap-to-bottom t
+  "Control whether to keep the prompt at the bottom of the window.
+If non-nil, when the prompt is visible within the window, then
+scroll so that the prompt is on the bottom on any input or
+output."
+  :version "28.1"
+  :type 'boolean)
 
 (defcustom term-scroll-show-maximum-output nil
   "Controls how interpreter output causes window to scroll.
@@ -541,7 +544,7 @@ See also `term-dynamic-complete'.
 This is a good thing to set in mode hooks.")
 
 (defvar term-input-filter
-  (function (lambda (str) (not (string-match "\\`\\s *\\'" str))))
+  (lambda (str) (not (string-match "\\`\\s *\\'" str)))
   "Predicate for filtering additions to input history.
 Only inputs answering true to this function are saved on the input
 history list.  Default is to save anything that isn't all whitespace.")
@@ -847,6 +850,7 @@ is buffer-local."
     (define-key map [prior] 'term-send-prior)
     (define-key map [next] 'term-send-next)
     (define-key map [xterm-paste] #'term--xterm-paste)
+    (define-key map [?\C-/] #'term-send-C-_)
     map)
   "Keyboard map for sending characters directly to the inferior process.")
 
@@ -1001,12 +1005,12 @@ Entry to this mode runs the hooks on `term-mode-hook'."
   ;; we do not want indent to sneak in any tabs
   (setq indent-tabs-mode nil)
   (setq buffer-display-table term-display-table)
-  (set (make-local-variable 'term-home-marker) (copy-marker 0))
-  (set (make-local-variable 'term-height) (floor (window-screen-lines)))
-  (set (make-local-variable 'term-width) (window-max-chars-per-line))
-  (set (make-local-variable 'term-last-input-start) (make-marker))
-  (set (make-local-variable 'term-last-input-end) (make-marker))
-  (set (make-local-variable 'term-last-input-match) "")
+  (setq-local term-home-marker (copy-marker 0))
+  (setq-local term-height (floor (window-screen-lines)))
+  (setq-local term-width (window-max-chars-per-line))
+  (setq-local term-last-input-start (make-marker))
+  (setq-local term-last-input-end (make-marker))
+  (setq-local term-last-input-match "")
 
   ;; These local variables are set to their local values:
   (make-local-variable 'term-saved-home-marker)
@@ -1024,9 +1028,9 @@ Entry to this mode runs the hooks on `term-mode-hook'."
   ;; a properly configured ange-ftp, I've decided to be conservative
   ;; and put them in. -mm
 
-  (set (make-local-variable 'term-ansi-at-host) (system-name))
-  (set (make-local-variable 'term-ansi-at-dir) default-directory)
-  (set (make-local-variable 'term-ansi-at-message) nil)
+  (setq-local term-ansi-at-host (system-name))
+  (setq-local term-ansi-at-dir default-directory)
+  (setq-local term-ansi-at-message nil)
 
   ;; For user tracking purposes -mm
   (make-local-variable 'ange-ftp-default-user)
@@ -1069,15 +1073,15 @@ Entry to this mode runs the hooks on `term-mode-hook'."
   (make-local-variable 'term-scroll-to-bottom-on-output)
   (make-local-variable 'term-scroll-show-maximum-output)
   (make-local-variable 'term-ptyp)
-  (set (make-local-variable 'term-vertical-motion) 'vertical-motion)
-  (set (make-local-variable 'term-pending-delete-marker) (make-marker))
+  (setq-local term-vertical-motion 'vertical-motion)
+  (setq-local term-pending-delete-marker (make-marker))
   (make-local-variable 'term-current-face)
   (term-ansi-reset)
-  (set (make-local-variable 'term-pending-frame) nil)
+  (setq-local term-pending-frame nil)
   ;; Cua-mode's keybindings interfere with the term keybindings, disable it.
-  (set (make-local-variable 'cua-mode) nil)
+  (setq-local cua-mode nil)
 
-  (set (make-local-variable 'font-lock-defaults) '(nil t))
+  (setq-local font-lock-defaults '(nil t))
 
   (add-function :filter-return
                 (local 'filter-buffer-substring-function)
@@ -1094,8 +1098,6 @@ Entry to this mode runs the hooks on `term-mode-hook'."
 
   (term--reset-scroll-region)
 
-  (easy-menu-add term-terminal-menu)
-  (easy-menu-add term-signals-menu)
   (or term-input-ring
       (setq term-input-ring (make-ring term-input-ring-size)))
   (term-update-mode-line))
@@ -1269,6 +1271,7 @@ without any interpretation."
 (defun term-send-next  () (interactive) (term-send-raw-string "\e[6~"))
 (defun term-send-del   () (interactive) (term-send-raw-string "\e[3~"))
 (defun term-send-backspace  () (interactive) (term-send-raw-string "\C-?"))
+(defun term-send-C-_  () (interactive) (term-send-raw-string "\C-_"))
 
 (defun term-char-mode ()
   "Switch to char (\"raw\") sub-mode of term mode.
@@ -1279,8 +1282,6 @@ intervention from Emacs, except for the escape character (usually C-c)."
   (when (term-in-line-mode)
     (setq term-old-mode-map (current-local-map))
     (use-local-map term-raw-map)
-    (easy-menu-add term-terminal-menu)
-    (easy-menu-add term-signals-menu)
 
     ;; Don't allow changes to the buffer or to point which are not
     ;; caused by the process filter.
@@ -1422,8 +1423,7 @@ buffer.  The hook `term-exec-hook' is run after each exec."
       (when proc (delete-process proc)))
     ;; Crank up a new process
     (let ((proc (term-exec-1 name buffer command switches)))
-      (make-local-variable 'term-ptyp)
-      (setq term-ptyp process-connection-type) ; t if pty, nil if pipe.
+      (setq-local term-ptyp process-connection-type) ; t if pty, nil if pipe.
       ;; Jump to the end, and set the process mark.
       (goto-char (point-max))
       (set-marker (process-mark proc) (point))
@@ -1543,9 +1543,12 @@ Nil if unknown.")
 	   (format term-termcap-format "TERMCAP="
 		   term-term-name term-height term-width)
 
-	   (format "INSIDE_EMACS=%s,term:%s" emacs-version term-protocol-version)
-	   (format "LINES=%d" term-height)
-	   (format "COLUMNS=%d" term-width))
+	   (format "INSIDE_EMACS=%s,term:%s"
+                   emacs-version term-protocol-version))
+          (when term-set-terminal-size
+            (list
+             (format "LINES=%d" term-height)
+	     (format "COLUMNS=%d" term-width)))
 	  process-environment))
 	(process-connection-type t)
 	;; We should suppress conversion of end-of-line format.
@@ -1559,9 +1562,9 @@ Nil if unknown.")
             process-environment))
     (apply #'start-process name buffer
 	   "/bin/sh" "-c"
-	   (format "stty -nl echo rows %d columns %d sane 2>/dev/null;\
+	   (format "stty -nl echo rows %d columns %d sane 2>%s;\
 if [ $1 = .. ]; then shift; fi; exec \"$@\""
-		   term-height term-width)
+		   term-height term-width null-device)
 	   ".."
 	   command switches)))
 
@@ -2787,7 +2790,7 @@ See `term-prompt-regexp'."
 
 ;; References:
 ;; [ctlseqs]: http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
-;; [ECMA-48]: http://www.ecma-international.org/publications/standards/Ecma-048.htm
+;; [ECMA-48]: https://www.ecma-international.org/publications/standards/Ecma-048.htm
 ;; [vt100]: https://vt100.net/docs/vt100-ug/chapter3.html
 
 (defconst term-control-seq-regexp
@@ -2796,12 +2799,12 @@ See `term-prompt-regexp'."
    "\\(?:[\r\n\000\007\t\b\016\017]\\|"
    ;; some Emacs specific control sequences, implemented by
    ;; `term-command-hook',
-   "\032[^\n]+\r?\n\\|"
+   "\032[^\n]+\n\\|"
    ;; a C1 escape coded character (see [ECMA-48] section 5.3 "Elements
    ;; of the C1 set"),
    "\e\\(?:[DM78c]\\|"
    ;; another Emacs specific control sequence,
-   "AnSiT[^\n]+\r?\n\\|"
+   "AnSiT[^\n]+\n\\|"
    ;; or an escape sequence (section 5.4 "Control Sequences"),
    "\\[\\([\x30-\x3F]*\\)[\x20-\x2F]*[\x40-\x7E]\\)\\)")
   "Regexp matching control sequences handled by term.el.")
@@ -3063,8 +3066,7 @@ See `term-prompt-regexp'."
                         (aset term-terminal-undecoded-bytes 0 ?\r))
                       (goto-char (point-max)))
                     ;; FIXME: Use (add-function :override (process-filter proc)
-                    (make-local-variable 'term-pager-old-filter)
-                    (setq term-pager-old-filter (process-filter proc))
+                    (setq-local term-pager-old-filter (process-filter proc))
                     ;; FIXME: Where is `term-pager-filter' set to a function?!
                     (set-process-filter proc term-pager-filter)
                     (setq i str-length))
@@ -3108,15 +3110,19 @@ See `term-prompt-regexp'."
 				    (or (eq scroll 'this) (not save-point)))
 			       (and (eq scroll 'others)
 				    (not (eq selected win))))
-		       (goto-char term-home-marker)
-		       (recenter 0)
+		       (when term-scroll-snap-to-bottom
+		         (goto-char term-home-marker)
+		         (recenter 0))
 		       (goto-char (process-mark proc))
 		       (if (not (pos-visible-in-window-p (point) win))
 			   (recenter -1)))
 		     ;; Optionally scroll so that the text
 		     ;; ends at the bottom of the window.
 		     (when (and term-scroll-show-maximum-output
-				(>= (point) (process-mark proc)))
+				(>= (point) (process-mark proc))
+				(or term-scroll-snap-to-bottom
+				    (not (pos-visible-in-window-p
+                                          (point-max) win))))
 		       (save-excursion
 			 (goto-char (point-max))
 			 (recenter -1)))))
@@ -3529,11 +3535,7 @@ The top-most line is line 0."
   ;;   (stop-process process))
   (setq term-pager-old-local-map (current-local-map))
   (use-local-map term-pager-break-map)
-  (easy-menu-add term-terminal-menu)
-  (easy-menu-add term-signals-menu)
-  (easy-menu-add term-pager-menu)
-  (make-local-variable 'term-old-mode-line-format)
-  (setq term-old-mode-line-format mode-line-format)
+  (setq-local term-old-mode-line-format mode-line-format)
   (setq mode-line-format
 	(list "--  **MORE**  "
 	      mode-line-buffer-identification
@@ -3618,8 +3620,8 @@ The top-most line is line 0."
   (message "Terminal-emulator pager break help...")
   (sit-for 0)
   (with-electric-help
-    (function (lambda ()
-		(princ (substitute-command-keys
+    (lambda ()
+      (princ (substitute-command-keys
 "\\<term-pager-break-map>\
 Terminal-emulator MORE break.\n\
 Type one of the following keys:\n\n\
@@ -3637,7 +3639,7 @@ Type one of the following keys:\n\n\
 Any other key is passed through to the program
 running under the terminal emulator and disables pager processing until
 all pending output has been dealt with."))
-		nil))))
+      nil)))
 
 (defun term-pager-continue (new-count)
   (let ((process (get-buffer-process (current-buffer))))
@@ -4090,53 +4092,6 @@ see `expand-file-name' and `substitute-in-file-name'.  For completion see
   (term-dynamic-complete-filename))
 
 
-(defun term-dynamic-simple-complete (stub candidates)
-  "Dynamically complete STUB from CANDIDATES list.
-This function inserts completion characters at point by completing STUB from
-the strings in CANDIDATES.  A completions listing may be shown in a help buffer
-if completion is ambiguous.
-
-Returns nil if no completion was inserted.
-Returns `sole' if completed with the only completion match.
-Returns `shortest' if completed with the shortest of the completion matches.
-Returns `partial' if completed as far as possible with the completion matches.
-Returns `listed' if a completion listing was shown.
-
-See also `term-dynamic-complete-filename'."
-  (declare (obsolete completion-in-region "23.2"))
-  (let* ((completion-ignore-case nil)
-	 (completions (all-completions stub candidates)))
-    (cond ((null completions)
- 	   (message "No completions of %s" stub)
-	   nil)
- 	  ((= 1 (length completions))	; Gotcha!
- 	   (let ((completion (car completions)))
- 	     (if (string-equal completion stub)
- 		 (message "Sole completion")
- 	       (insert (substring completion (length stub)))
- 	       (message "Completed"))
-	     (when term-completion-addsuffix (insert " "))
-	     'sole))
- 	  (t				; There's no unique completion.
- 	   (let ((completion (try-completion stub candidates)))
- 	     ;; Insert the longest substring.
- 	     (insert (substring completion (length stub)))
- 	     (cond ((and term-completion-recexact term-completion-addsuffix
- 			 (string-equal stub completion)
- 			 (member completion completions))
- 		    ;; It's not unique, but user wants shortest match.
- 		    (insert " ")
- 		    (message "Completed shortest")
-		    'shortest)
- 		   ((or term-completion-autolist
- 			(string-equal stub completion))
- 		    ;; It's not unique, list possible completions.
- 		    (term-dynamic-list-completions completions)
-		    'listed)
- 		   (t
-		    (message "Partially completed")
-		    'partial)))))))
-
 (defun term-dynamic-list-filename-completions ()
   "List in help buffer possible completions of the filename at point."
   (interactive)
@@ -4166,7 +4121,7 @@ Typing SPC flushes the help buffer."
 		 (eq (window-buffer (posn-window (event-start first)))
 		     (get-buffer "*Completions*"))
 		 (memq (key-binding key)
-                       '(mouse-choose-completion choose-completion))))
+                       '(choose-completion))))
 	  ;; If the user does choose-completion with the mouse,
 	  ;; execute the command, then delete the completion window.
 	  (progn
@@ -4305,8 +4260,7 @@ well as the newer ports COM10 and higher."
                  ;; `prompt': The most recently used port is provided as
                  ;; the default value, which is used when the user
                  ;; simply presses return.
-                 (if (stringp h) (format "Serial port (default %s): " h)
-                   "Serial port: ")
+                 (format-prompt "Serial port" h)
                  ;; `directory': Most systems have their serial ports
                  ;; in the same directory, so start in the directory
                  ;; of the most recently used port, or in a reasonable
@@ -4321,8 +4275,7 @@ well as the newer ports COM10 and higher."
                  ;; serial port.
                  "")
               (read-from-minibuffer
-               (if (stringp h) (format "Serial port (default %s): " h)
-                 "Serial port: ")
+               (format-prompt "Serial port" h)
                nil nil nil '(file-name-history . 1) nil nil))))
     (if (or (null x) (and (stringp x) (zerop (length x))))
         (setq x h)
@@ -4344,7 +4297,7 @@ Try to be nice by providing useful defaults and history."
              (cond ((string= h serial-no-speed)
                     "Speed (default nil = set by port): ")
                    (h
-                    (format "Speed (default %s b/s): " h))
+                    (format-prompt "Speed" (format "%s b/s" h)))
                    (t
 		    (format "Speed (b/s): ")))
              nil nil nil '(history . 1) nil nil)))

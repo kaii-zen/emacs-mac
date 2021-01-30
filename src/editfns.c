@@ -46,13 +46,15 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "composite.h"
 #include "intervals.h"
-#include "ptr-bounds.h"
 #include "systime.h"
 #include "character.h"
 #include "buffer.h"
 #include "window.h"
 #include "blockinput.h"
 
+#ifdef WINDOWSNT
+# include "w32common.h"
+#endif
 static void update_buffer_properties (ptrdiff_t, ptrdiff_t);
 static Lisp_Object styled_format (ptrdiff_t, Lisp_Object *, bool);
 
@@ -122,12 +124,14 @@ init_editfns (void)
   else if (NILP (Vuser_full_name))
     Vuser_full_name = build_string ("unknown");
 
-#ifdef HAVE_SYS_UTSNAME_H
+#if defined HAVE_SYS_UTSNAME_H
   {
     struct utsname uts;
     uname (&uts);
     Voperating_system_release = build_string (uts.release);
   }
+#elif defined WINDOWSNT
+  Voperating_system_release = build_string (w32_version_string ());
 #else
   Voperating_system_release = Qnil;
 #endif
@@ -162,20 +166,14 @@ DEFUN ("byte-to-string", Fbyte_to_string, Sbyte_to_string, 1, 1, 0,
 
 DEFUN ("string-to-char", Fstring_to_char, Sstring_to_char, 1, 1, 0,
        doc: /* Return the first character in STRING.  */)
-  (register Lisp_Object string)
+  (Lisp_Object string)
 {
-  register Lisp_Object val;
   CHECK_STRING (string);
-  if (SCHARS (string))
-    {
-      if (STRING_MULTIBYTE (string))
-	XSETFASTINT (val, STRING_CHAR (SDATA (string)));
-      else
-	XSETFASTINT (val, SREF (string, 0));
-    }
-  else
-    XSETFASTINT (val, 0);
-  return val;
+
+  /* This returns zero if STRING is empty.  */
+  return make_fixnum (STRING_MULTIBYTE (string)
+		      ? STRING_CHAR (SDATA (string))
+		      : SREF (string, 0));
 }
 
 DEFUN ("point", Fpoint, Spoint, 0, 0, 0,
@@ -195,11 +193,16 @@ DEFUN ("point-marker", Fpoint_marker, Spoint_marker, 0, 0, 0,
   return build_marker (current_buffer, PT, PT_BYTE);
 }
 
-DEFUN ("goto-char", Fgoto_char, Sgoto_char, 1, 1, "NGoto char: ",
+DEFUN ("goto-char", Fgoto_char, Sgoto_char, 1, 1,
+         "(goto-char--read-natnum-interactive \"Go to char: \")",
        doc: /* Set point to POSITION, a number or marker.
 Beginning of buffer is position (point-min), end is (point-max).
 
-The return value is POSITION.  */)
+The return value is POSITION.
+
+If called interactively, a numeric prefix argument specifies
+POSITION; without a numeric prefix argument, read POSITION from the
+minibuffer.  The default value is the number at point (if any).  */)
   (register Lisp_Object position)
 {
   if (MARKERP (position))
@@ -714,7 +717,8 @@ If the scan reaches the end of the buffer, return that position.
 
 This function ignores text display directionality; it returns the
 position of the first character in logical order, i.e. the smallest
-character position on the line.
+character position on the logical line.  See `vertical-motion' for
+movement by screen lines.
 
 This function constrains the returned position to the current field
 unless that position would be on a different line from the original,
@@ -725,18 +729,23 @@ boundaries, bind `inhibit-field-text-motion' to t.
 This function does not move point.  */)
   (Lisp_Object n)
 {
-  ptrdiff_t charpos, bytepos;
+  ptrdiff_t charpos, bytepos, count;
 
   if (NILP (n))
-    XSETFASTINT (n, 1);
+    count = 0;
+  else if (FIXNUMP (n))
+    count = clip_to_bounds (-BUF_BYTES_MAX, XFIXNUM (n) - 1, BUF_BYTES_MAX);
   else
-    CHECK_FIXNUM (n);
+    {
+      CHECK_INTEGER (n);
+      count = NILP (Fnatnump (n)) ? -BUF_BYTES_MAX : BUF_BYTES_MAX;
+    }
 
-  scan_newline_from_point (XFIXNUM (n) - 1, &charpos, &bytepos);
+  scan_newline_from_point (count, &charpos, &bytepos);
 
   /* Return END constrained to the current input field.  */
   return Fconstrain_to_field (make_fixnum (charpos), make_fixnum (PT),
-			      XFIXNUM (n) != 1 ? Qt : Qnil,
+			      count != 0 ? Qt : Qnil,
 			      Qt, Qnil);
 }
 
@@ -763,11 +772,14 @@ This function does not move point.  */)
   ptrdiff_t orig = PT;
 
   if (NILP (n))
-    XSETFASTINT (n, 1);
+    clipped_n = 1;
+  else if (FIXNUMP (n))
+    clipped_n = clip_to_bounds (-BUF_BYTES_MAX, XFIXNUM (n), BUF_BYTES_MAX);
   else
-    CHECK_FIXNUM (n);
-
-  clipped_n = clip_to_bounds (PTRDIFF_MIN + 1, XFIXNUM (n), PTRDIFF_MAX);
+    {
+      CHECK_INTEGER (n);
+      clipped_n = NILP (Fnatnump (n)) ? -BUF_BYTES_MAX : BUF_BYTES_MAX;
+    }
   end_pos = find_before_next_newline (orig, 0, clipped_n - (clipped_n <= 0),
 				      NULL);
 
@@ -940,10 +952,10 @@ DEFUN ("position-bytes", Fposition_bytes, Sposition_bytes, 1, 1, 0,
 If POSITION is out of range, the value is nil.  */)
   (Lisp_Object position)
 {
-  CHECK_FIXNUM_COERCE_MARKER (position);
-  if (XFIXNUM (position) < BEG || XFIXNUM (position) > Z)
+  EMACS_INT pos = fix_position (position);
+  if (! (BEG <= pos && pos <= Z))
     return Qnil;
-  return make_fixnum (CHAR_TO_BYTE (XFIXNUM (position)));
+  return make_fixnum (CHAR_TO_BYTE (pos));
 }
 
 DEFUN ("byte-to-position", Fbyte_to_position, Sbyte_to_position, 1, 1, 0,
@@ -991,7 +1003,7 @@ At the beginning of the buffer or accessible region, return 0.  */)
   else if (!NILP (BVAR (current_buffer, enable_multibyte_characters)))
     {
       ptrdiff_t pos = PT_BYTE;
-      DEC_POS (pos);
+      pos -= prev_char_len (pos);
       XSETFASTINT (temp, FETCH_CHAR (pos));
     }
   else
@@ -1060,11 +1072,11 @@ If POS is out of range, the value is nil.  */)
     }
   else
     {
-      CHECK_FIXNUM_COERCE_MARKER (pos);
-      if (XFIXNUM (pos) < BEGV || XFIXNUM (pos) >= ZV)
+      EMACS_INT p = fix_position (pos);
+      if (! (BEGV <= p && p < ZV))
 	return Qnil;
 
-      pos_byte = CHAR_TO_BYTE (XFIXNUM (pos));
+      pos_byte = CHAR_TO_BYTE (p);
     }
 
   return make_fixnum (FETCH_CHAR (pos_byte));
@@ -1094,17 +1106,17 @@ If POS is out of range, the value is nil.  */)
     }
   else
     {
-      CHECK_FIXNUM_COERCE_MARKER (pos);
+      EMACS_INT p = fix_position (pos);
 
-      if (XFIXNUM (pos) <= BEGV || XFIXNUM (pos) > ZV)
+      if (! (BEGV < p && p <= ZV))
 	return Qnil;
 
-      pos_byte = CHAR_TO_BYTE (XFIXNUM (pos));
+      pos_byte = CHAR_TO_BYTE (p);
     }
 
   if (!NILP (BVAR (current_buffer, enable_multibyte_characters)))
     {
-      DEC_POS (pos_byte);
+      pos_byte -= prev_char_len (pos_byte);
       XSETFASTINT (val, FETCH_CHAR (pos_byte));
     }
   else
@@ -1262,14 +1274,17 @@ name, or nil if there is no such user.  */)
   if (q)
     {
       Lisp_Object login = Fuser_login_name (INT_TO_INTEGER (pw->pw_uid));
-      USE_SAFE_ALLOCA;
-      char *r = SAFE_ALLOCA (strlen (p) + SBYTES (login) + 1);
-      memcpy (r, p, q - p);
-      char *s = lispstpcpy (&r[q - p], login);
-      r[q - p] = upcase ((unsigned char) r[q - p]);
-      strcpy (s, q + 1);
-      full = build_string (r);
-      SAFE_FREE ();
+      if (!NILP (login))
+	{
+	  USE_SAFE_ALLOCA;
+	  char *r = SAFE_ALLOCA (strlen (p) + SBYTES (login) + 1);
+	  memcpy (r, p, q - p);
+	  char *s = lispstpcpy (&r[q - p], login);
+	  r[q - p] = upcase ((unsigned char) r[q - p]);
+	  strcpy (s, q + 1);
+	  full = build_string (r);
+	  SAFE_FREE ();
+	}
     }
 #endif /* AMPERSAND_FULL_NAME */
 
@@ -1538,7 +1553,7 @@ from adjoining text, if those properties are sticky.  */)
    make_uninit_string, which can cause the buffer arena to be
    compacted.  make_string has no way of knowing that the data has
    been moved, and thus copies the wrong data into the string.  This
-   doesn't effect most of the other users of make_string, so it should
+   doesn't affect most of the other users of make_string, so it should
    be left as is.  But we should use this function when conjuring
    buffer substrings.  */
 
@@ -1715,21 +1730,8 @@ using `string-make-multibyte' or `string-make-unibyte', which see.  */)
   if (!BUFFER_LIVE_P (bp))
     error ("Selecting deleted buffer");
 
-  if (NILP (start))
-    b = BUF_BEGV (bp);
-  else
-    {
-      CHECK_FIXNUM_COERCE_MARKER (start);
-      b = XFIXNUM (start);
-    }
-  if (NILP (end))
-    e = BUF_ZV (bp);
-  else
-    {
-      CHECK_FIXNUM_COERCE_MARKER (end);
-      e = XFIXNUM (end);
-    }
-
+  b = !NILP (start) ? fix_position (start) : BUF_BEGV (bp);
+  e = !NILP (end) ? fix_position (end) : BUF_ZV (bp);
   if (b > e)
     temp = b, b = e, e = temp;
 
@@ -1783,21 +1785,8 @@ determines whether case is significant or ignored.  */)
 	error ("Selecting deleted buffer");
     }
 
-  if (NILP (start1))
-    begp1 = BUF_BEGV (bp1);
-  else
-    {
-      CHECK_FIXNUM_COERCE_MARKER (start1);
-      begp1 = XFIXNUM (start1);
-    }
-  if (NILP (end1))
-    endp1 = BUF_ZV (bp1);
-  else
-    {
-      CHECK_FIXNUM_COERCE_MARKER (end1);
-      endp1 = XFIXNUM (end1);
-    }
-
+  begp1 = !NILP (start1) ? fix_position (start1) : BUF_BEGV (bp1);
+  endp1 = !NILP (end1) ? fix_position (end1) : BUF_ZV (bp1);
   if (begp1 > endp1)
     temp = begp1, begp1 = endp1, endp1 = temp;
 
@@ -1821,21 +1810,8 @@ determines whether case is significant or ignored.  */)
 	error ("Selecting deleted buffer");
     }
 
-  if (NILP (start2))
-    begp2 = BUF_BEGV (bp2);
-  else
-    {
-      CHECK_FIXNUM_COERCE_MARKER (start2);
-      begp2 = XFIXNUM (start2);
-    }
-  if (NILP (end2))
-    endp2 = BUF_ZV (bp2);
-  else
-    {
-      CHECK_FIXNUM_COERCE_MARKER (end2);
-      endp2 = XFIXNUM (end2);
-    }
-
+  begp2 = !NILP (start2) ? fix_position (start2) : BUF_BEGV (bp2);
+  endp2 = !NILP (end2) ? fix_position (end2) : BUF_ZV (bp2);
   if (begp2 > endp2)
     temp = begp2, begp2 = endp2, endp2 = temp;
 
@@ -1858,26 +1834,24 @@ determines whether case is significant or ignored.  */)
       if (! NILP (BVAR (bp1, enable_multibyte_characters)))
 	{
 	  c1 = BUF_FETCH_MULTIBYTE_CHAR (bp1, i1_byte);
-	  BUF_INC_POS (bp1, i1_byte);
+	  i1_byte += buf_next_char_len (bp1, i1_byte);
 	  i1++;
 	}
       else
 	{
-	  c1 = BUF_FETCH_BYTE (bp1, i1);
-	  MAKE_CHAR_MULTIBYTE (c1);
+	  c1 = make_char_multibyte (BUF_FETCH_BYTE (bp1, i1));
 	  i1++;
 	}
 
       if (! NILP (BVAR (bp2, enable_multibyte_characters)))
 	{
 	  c2 = BUF_FETCH_MULTIBYTE_CHAR (bp2, i2_byte);
-	  BUF_INC_POS (bp2, i2_byte);
+	  i2_byte += buf_next_char_len (bp2, i2_byte);
 	  i2++;
 	}
       else
 	{
-	  c2 = BUF_FETCH_BYTE (bp2, i2);
-	  MAKE_CHAR_MULTIBYTE (c2);
+	  c2 = make_char_multibyte (BUF_FETCH_BYTE (bp2, i2));
 	  i2++;
 	}
 
@@ -1936,8 +1910,8 @@ determines whether case is significant or ignored.  */)
   sys_jmp_buf jmp;				\
   unsigned short quitcounter;
 
-#define NOTE_DELETE(ctx, xoff) set_bit ((ctx)->deletions, (xoff))
-#define NOTE_INSERT(ctx, yoff) set_bit ((ctx)->insertions, (yoff))
+#define NOTE_DELETE(ctx, xoff) set_bit ((ctx)->deletions, xoff)
+#define NOTE_INSERT(ctx, yoff) set_bit ((ctx)->insertions, yoff)
 #define EARLY_ABORT(ctx) compareseq_early_abort (ctx)
 
 struct context;
@@ -1990,6 +1964,28 @@ nil.  */)
   if (a == b)
     error ("Cannot replace a buffer with itself");
 
+  ptrdiff_t too_expensive;
+  if (NILP (max_costs))
+    too_expensive = 1000000;
+  else if (FIXNUMP (max_costs))
+    too_expensive = clip_to_bounds (0, XFIXNUM (max_costs), PTRDIFF_MAX);
+  else
+    {
+      CHECK_INTEGER (max_costs);
+      too_expensive = NILP (Fnatnump (max_costs)) ? 0 : PTRDIFF_MAX;
+    }
+
+  struct timespec time_limit = make_timespec (0, -1);
+  if (!NILP (max_secs))
+    {
+      struct timespec
+	tlim = timespec_add (current_timespec (),
+			     lisp_time_argument (max_secs)),
+	tmax = make_timespec (TYPE_MAXIMUM (time_t), TIMESPEC_HZ - 1);
+      if (timespec_cmp (tlim, tmax) < 0)
+	time_limit = tlim;
+    }
+
   ptrdiff_t min_a = BEGV;
   ptrdiff_t min_b = BUF_BEGV (b);
   ptrdiff_t size_a = ZV - min_a;
@@ -2019,36 +2015,24 @@ nil.  */)
 
   ptrdiff_t count = SPECPDL_INDEX ();
 
+
+  ptrdiff_t diags = size_a + size_b + 3;
+  ptrdiff_t del_bytes = size_a / CHAR_BIT + 1;
+  ptrdiff_t ins_bytes = size_b / CHAR_BIT + 1;
+  ptrdiff_t *buffer;
+  ptrdiff_t bytes_needed;
+  if (INT_MULTIPLY_WRAPV (diags, 2 * sizeof *buffer, &bytes_needed)
+      || INT_ADD_WRAPV (del_bytes + ins_bytes, bytes_needed, &bytes_needed))
+    memory_full (SIZE_MAX);
+  USE_SAFE_ALLOCA;
+  buffer = SAFE_ALLOCA (bytes_needed);
+  unsigned char *deletions_insertions = memset (buffer + 2 * diags, 0,
+						del_bytes + ins_bytes);
+
   /* FIXME: It is not documented how to initialize the contents of the
      context structure.  This code cargo-cults from the existing
      caller in src/analyze.c of GNU Diffutils, which appears to
      work.  */
-
-  ptrdiff_t diags = size_a + size_b + 3;
-  ptrdiff_t *buffer;
-  USE_SAFE_ALLOCA;
-  SAFE_NALLOCA (buffer, 2, diags);
-
-  if (NILP (max_costs))
-    XSETFASTINT (max_costs, 1000000);
-  else
-    CHECK_FIXNUM (max_costs);
-
-  struct timespec time_limit = make_timespec (0, -1);
-  if (!NILP (max_secs))
-    {
-      struct timespec
-	tlim = timespec_add (current_timespec (),
-			     lisp_time_argument (max_secs)),
-	tmax = make_timespec (TYPE_MAXIMUM (time_t), TIMESPEC_HZ - 1);
-      if (timespec_cmp (tlim, tmax) < 0)
-	time_limit = tlim;
-    }
-
-  /* Micro-optimization: Casting to size_t generates much better
-     code.  */
-  ptrdiff_t del_bytes = (size_t) size_a / CHAR_BIT + 1;
-  ptrdiff_t ins_bytes = (size_t) size_b / CHAR_BIT + 1;
   struct context ctx = {
     .buffer_a = a,
     .buffer_b = b,
@@ -2056,16 +2040,14 @@ nil.  */)
     .beg_b = min_b,
     .a_unibyte = BUF_ZV (a) == BUF_ZV_BYTE (a),
     .b_unibyte = BUF_ZV (b) == BUF_ZV_BYTE (b),
-    .deletions = SAFE_ALLOCA (del_bytes),
-    .insertions = SAFE_ALLOCA (ins_bytes),
+    .deletions = deletions_insertions,
+    .insertions = deletions_insertions + del_bytes,
     .fdiag = buffer + size_b + 1,
     .bdiag = buffer + diags + size_b + 1,
     .heuristic = true,
-    .too_expensive = XFIXNUM (max_costs),
+    .too_expensive = too_expensive,
     .time_limit = time_limit,
   };
-  memclear (ctx.deletions, del_bytes);
-  memclear (ctx.insertions, ins_bytes);
 
   /* compareseq requires indices to be zero-based.  We add BEGV back
      later.  */
@@ -2110,8 +2092,8 @@ nil.  */)
 
       /* Check whether there is a change (insertion or deletion)
          before the current position.  */
-      if ((i > 0 && bit_is_set (ctx.deletions, i - 1)) ||
-          (j > 0 && bit_is_set (ctx.insertions, j - 1)))
+      if ((i > 0 && bit_is_set (ctx.deletions, i - 1))
+	  || (j > 0 && bit_is_set (ctx.insertions, j - 1)))
 	{
           ptrdiff_t end_a = min_a + i;
           ptrdiff_t end_b = min_b + j;
@@ -2160,21 +2142,15 @@ nil.  */)
 static void
 set_bit (unsigned char *a, ptrdiff_t i)
 {
-  eassert (i >= 0);
-  /* Micro-optimization: Casting to size_t generates much better
-     code.  */
-  size_t j = i;
-  a[j / CHAR_BIT] |= (1 << (j % CHAR_BIT));
+  eassume (0 <= i);
+  a[i / CHAR_BIT] |= (1 << (i % CHAR_BIT));
 }
 
 static bool
 bit_is_set (const unsigned char *a, ptrdiff_t i)
 {
-  eassert (i >= 0);
-  /* Micro-optimization: Casting to size_t generates much better
-     code.  */
-  size_t j = i;
-  return a[j / CHAR_BIT] & (1 << (j % CHAR_BIT));
+  eassume (0 <= i);
+  return a[i / CHAR_BIT] & (1 << (i % CHAR_BIT));
 }
 
 /* Return true if the characters at position POS_A of buffer
@@ -2338,7 +2314,7 @@ Both characters must have the same length of multi-byte form.  */)
 	}
       p = BYTE_POS_ADDR (pos_byte);
       if (multibyte_p)
-	INC_POS (pos_byte_next);
+	pos_byte_next += next_char_len (pos_byte_next);
       else
 	++pos_byte_next;
       if (pos_byte_next - pos_byte == len
@@ -2399,7 +2375,7 @@ Both characters must have the same length of multi-byte form.  */)
 		   decrease it now.  */
 		pos--;
 	      else
-		INC_POS (pos_byte_next);
+		pos_byte_next += next_char_len (pos_byte_next);
 
 	      if (! NILP (noundo))
 		bset_undo_list (current_buffer, tem);
@@ -2476,7 +2452,7 @@ check_translation (ptrdiff_t pos, ptrdiff_t pos_byte, ptrdiff_t end,
 			memcpy (bufalloc, buf, sizeof initial_buf);
 		      buf = bufalloc;
 		    }
-		  buf[buf_used++] = STRING_CHAR_AND_LENGTH (p, len1);
+		  buf[buf_used++] = string_char_and_length (p, &len1);
 		  pos_byte += len1;
 		}
 	      if (XFIXNUM (AREF (elt, i)) != buf[i])
@@ -2535,13 +2511,13 @@ It returns the number of characters changed.  */)
       int len, oc;
 
       if (multibyte)
-	oc = STRING_CHAR_AND_LENGTH (p, len);
+	oc = string_char_and_length (p, &len);
       else
 	oc = *p, len = 1;
       if (oc < translatable_chars)
 	{
 	  int nc; /* New character.  */
-	  int str_len;
+	  int str_len UNINIT;
 	  Lisp_Object val;
 
 	  if (STRINGP (table))
@@ -2552,7 +2528,7 @@ It returns the number of characters changed.  */)
 	      if (string_multibyte)
 		{
 		  str = tt + string_char_to_byte (table, oc);
-		  nc = STRING_CHAR_AND_LENGTH (str, str_len);
+		  nc = string_char_and_length (str, &str_len);
 		}
 	      else
 		{
@@ -2695,29 +2671,27 @@ See also `save-restriction'.
 When calling from Lisp, pass two arguments START and END:
 positions (integers or markers) bounding the text that should
 remain visible.  */)
-  (register Lisp_Object start, Lisp_Object end)
+  (Lisp_Object start, Lisp_Object end)
 {
-  CHECK_FIXNUM_COERCE_MARKER (start);
-  CHECK_FIXNUM_COERCE_MARKER (end);
+  EMACS_INT s = fix_position (start), e = fix_position (end);
 
-  if (XFIXNUM (start) > XFIXNUM (end))
+  if (e < s)
     {
-      Lisp_Object tem;
-      tem = start; start = end; end = tem;
+      EMACS_INT tem = s; s = e; e = tem;
     }
 
-  if (!(BEG <= XFIXNUM (start) && XFIXNUM (start) <= XFIXNUM (end) && XFIXNUM (end) <= Z))
+  if (!(BEG <= s && s <= e && e <= Z))
     args_out_of_range (start, end);
 
-  if (BEGV != XFIXNAT (start) || ZV != XFIXNAT (end))
+  if (BEGV != s || ZV != e)
     current_buffer->clip_changed = 1;
 
-  SET_BUF_BEGV (current_buffer, XFIXNAT (start));
-  SET_BUF_ZV (current_buffer, XFIXNAT (end));
-  if (PT < XFIXNAT (start))
-    SET_PT (XFIXNAT (start));
-  if (PT > XFIXNAT (end))
-    SET_PT (XFIXNAT (end));
+  SET_BUF_BEGV (current_buffer, s);
+  SET_BUF_ZV (current_buffer, e);
+  if (PT < s)
+    SET_PT (s);
+  if (e < PT)
+    SET_PT (e);
   /* Changing the buffer bounds invalidates any recorded current column.  */
   invalidate_current_column ();
   return Qnil;
@@ -3112,7 +3086,7 @@ styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)
 			      : FLT_RADIX == 16 ? 4
 			      : -1)),
 
-   /* Maximum number of bytes (including terminating NUL) generated
+   /* Maximum number of bytes (including terminating null) generated
       by any format, if precision is no more than USEFUL_PRECISION_MAX.
       On all practical hosts, %Lf is the worst case.  */
    SPRINTF_BUFSIZE = (sizeof "-." + (LDBL_MAX_10_EXP + 1)
@@ -3175,8 +3149,6 @@ styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)
      string was not copied into the output.
      It is 2 if byte I was not the first byte of its character.  */
   char *discarded = (char *) &info[nspec_bound];
-  info = ptr_bounds_clip (info, info_size);
-  discarded = ptr_bounds_clip (discarded, formatlen);
   memset (discarded, 0, formatlen);
 
   /* Try to determine whether the result should be multibyte.
@@ -3192,7 +3164,7 @@ styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)
     if (STRINGP (args[i]) && STRING_MULTIBYTE (args[i]))
       multibyte = true;
 
-  int quoting_style = message ? text_quoting_style () : -1;
+  Lisp_Object quoting_style = message ? Ftext_quoting_style () : Qnil;
 
   ptrdiff_t ispec;
   ptrdiff_t nspec = 0;
@@ -3812,7 +3784,7 @@ styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)
 	  unsigned char str[MAX_MULTIBYTE_LENGTH];
 
 	  if ((format_char == '`' || format_char == '\'')
-	      && quoting_style == CURVE_QUOTING_STYLE)
+	      && EQ (quoting_style, Qcurve))
 	    {
 	      if (! multibyte)
 		{
@@ -3823,7 +3795,7 @@ styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)
 	      convbytes = 3;
 	      new_result = true;
 	    }
-	  else if (format_char == '`' && quoting_style == STRAIGHT_QUOTING_STYLE)
+	  else if (format_char == '`' && EQ (quoting_style, Qstraight))
 	    {
 	      convsrc = "'";
 	      new_result = true;
@@ -4512,7 +4484,9 @@ functions if all the text being accessed has this property.  */);
 	       doc: /* The user's name, based upon the real uid only.  */);
 
   DEFVAR_LISP ("operating-system-release", Voperating_system_release,
-	       doc: /* The release of the operating system Emacs is running on.  */);
+	       doc: /* The kernel version of the operating system on which Emacs is running.
+The value is a string.  It can also be nil if Emacs doesn't
+know how to get the kernel version on the underlying OS.  */);
 
   DEFVAR_BOOL ("binary-as-unsigned",
 	       binary_as_unsigned,

@@ -80,7 +80,7 @@ char *w32_getenv (const char *);
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <dosname.h>
+#include <filename.h>
 #include <intprops.h>
 #include <min-max.h>
 #include <pathmax.h>
@@ -251,7 +251,6 @@ get_current_dir_name (void)
   bufsize_max = min (bufsize_max, PATH_MAX);
 #endif
 
-  char *buf;
   struct stat dotstat, pwdstat;
   size_t pwdlen;
   /* If PWD is accurate, use it instead of calling getcwd.  PWD is
@@ -265,37 +264,23 @@ get_current_dir_name (void)
       && stat (".", &dotstat) == 0
       && dotstat.st_ino == pwdstat.st_ino
       && dotstat.st_dev == pwdstat.st_dev)
-    {
-      buf = xmalloc (strlen (pwd) + 1);
-      strcpy (buf, pwd);
-    }
+    return strdup (pwd);
   else
     {
-      size_t buf_size = 1024;
+      ptrdiff_t buf_size = min (bufsize_max, 1024);
       for (;;)
-        {
-	  int tmp_errno;
-	  buf = malloc (buf_size);
-	  if (! buf)
-	    break;
-          if (getcwd (buf, buf_size) == buf)
-            break;
-	  tmp_errno = errno;
+	{
+	  char *buf = malloc (buf_size);
+	  if (!buf)
+	    return NULL;
+	  if (getcwd (buf, buf_size) == buf)
+	    return buf;
 	  free (buf);
-	  if (tmp_errno != ERANGE)
-            {
-              errno = tmp_errno;
-              return NULL;
-            }
-          buf_size *= 2;
-	  if (! buf_size)
-	    {
-	      errno = ENOMEM;
-	      return NULL;
-	    }
-        }
+	  if (errno != ERANGE || buf_size == bufsize_max)
+	    return NULL;
+	  buf_size = buf_size <= bufsize_max / 2 ? 2 * buf_size : bufsize_max;
+	}
     }
-  return buf;
 }
 #endif
 
@@ -1506,11 +1491,17 @@ set_local_socket (char const *server_name)
 		"%s: (Be careful: XDG_RUNTIME_DIR is security-related.)\n"),
 	       progname, sockdirname, progname);
 	}
-      message (true,
-	       ("%s: can't find socket; have you started the server?\n"
-		"%s: To start the server in Emacs,"
-		" type \"M-x server-start\".\n"),
-	       progname, progname);
+
+      /* If there's an alternate editor and the user has requested
+	 --quiet, don't output the warning. */
+      if (!quiet || !alternate_editor)
+	{
+	  message (true,
+		   ("%s: can't find socket; have you started the server?\n"
+		    "%s: To start the server in Emacs,"
+		    " type \"M-x server-start\".\n"),
+		   progname, progname);
+	}
     }
   else
     message (true, "%s: can't stat %s: %s\n",

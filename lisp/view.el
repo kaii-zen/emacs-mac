@@ -88,7 +88,9 @@ the selected window is considered for restoring."
   :group 'view)
 
 (defcustom view-inhibit-help-message nil
-  "Non-nil inhibits the help message shown upon entering View mode."
+  "Non-nil inhibits the help message shown upon entering View mode.
+This setting takes effect only when View mode is entered via an
+interactive command; otherwise the help message is not shown."
   :type 'boolean
   :group 'view
   :version "22.1")
@@ -139,7 +141,8 @@ See RETURN-TO-ALIST argument of function `view-mode-exit' for the format of
 (put 'view-return-to-alist 'permanent-local t)
 
 (defvar view-exit-action nil
-  "If non-nil, a function with one argument (a buffer) called when finished viewing.
+  "If non-nil, a function called when finished viewing.
+The function should take one argument (a buffer).
 Commands like \\[view-file] and \\[view-file-other-window] may
 set this to bury or kill the viewed buffer.
 Observe that the buffer viewed might not appear in any window at
@@ -559,7 +562,10 @@ This function runs the normal hook `view-mode-hook'."
 
   (unless view-mode
     (view-mode 1)
-    (unless view-inhibit-help-message
+    (when (and (not view-inhibit-help-message)
+               ;; Avoid spamming the echo area if `view-mode' is entered
+               ;; non-interactively, e.g., in a temporary buffer (bug#44629).
+               this-command)
       (message "%s"
 	       (substitute-command-keys "\
 View mode: type \\[help-command] for help, \\[describe-mode] for commands, \\[View-quit] to quit.")))))

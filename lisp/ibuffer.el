@@ -48,7 +48,6 @@
   (require 'ibuf-macs)
   (require 'dired))
 
-(require 'font-core)
 (require 'seq)
 
 (require 'ibuffer-loaddefs)
@@ -339,6 +338,8 @@ directory, like `default-directory'."
 (defcustom ibuffer-load-hook nil
   "Hook run when Ibuffer is loaded."
   :type 'hook)
+(make-obsolete-variable 'ibuffer-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defcustom ibuffer-marked-face 'warning
   "Face used for displaying marked buffers."
@@ -1307,6 +1308,11 @@ a new window in the current frame, splitting vertically."
                           (car dired-directory)))))
 	(and dirname (expand-file-name dirname))))))
 
+(defun ibuffer--abbreviate-file-name (filename)
+  "Abbreviate FILENAME using `ibuffer-directory-abbrev-alist'."
+  (let ((directory-abbrev-alist ibuffer-directory-abbrev-alist))
+    (abbreviate-file-name filename)))
+
 (define-ibuffer-op ibuffer-do-save ()
   "Save marked buffers as with `save-buffer'."
   (:complex t
@@ -1595,7 +1601,7 @@ If point is on a group name, this function operates on that group."
 (defun ibuffer-compile-make-substring-form (strvar maxvar from-end-p)
   (if from-end-p
       ;; FIXME: not sure if this case is correct (Bug#24972)
-      `(truncate-string-to-width str strlen (- strlen ,maxvar) nil ?\s)
+      `(truncate-string-to-width str strlen (- strlen ,maxvar) ?\s)
     `(truncate-string-to-width ,strvar ,maxvar nil ?\s)))
 
 (defun ibuffer-compile-make-format-form (strvar widthform alignment)
@@ -1884,9 +1890,7 @@ If point is on a group name, this function operates on that group."
        (cond ((zerop total) "No files")
 	     ((= 1 total) "1 file")
 	     (t (format "%d files" total))))))
-  (let ((directory-abbrev-alist ibuffer-directory-abbrev-alist))
-    (abbreviate-file-name
-     (or (ibuffer-buffer-file-name) ""))))
+  (ibuffer--abbreviate-file-name (or (ibuffer-buffer-file-name) "")))
 
 (define-ibuffer-column filename-and-process
   (:name "Filename/Process"
@@ -2463,7 +2467,7 @@ FORMATS is the value to use for `ibuffer-formats'.
 	  (require 'ibuf-ext)
 	  (setq ibuffer-filter-groups filter-groups))
 	(when formats
-	  (set (make-local-variable 'ibuffer-formats) formats))
+	  (setq-local ibuffer-formats formats))
 	(ibuffer-update nil)
 	;; Skip the group name by default.
 	(ibuffer-forward-line 0 t)
@@ -2682,7 +2686,7 @@ You may rearrange filter groups by using the usual pair
 `\\[ibuffer-kill-line]' and `\\[ibuffer-yank]'.  Yanked groups
 will be inserted before the group at point."
   ;; Include state info next to the mode name.
-  (set (make-local-variable 'mode-line-process)
+  (setq-local mode-line-process
         '(" by "
           (ibuffer-sorting-mode (:eval (symbol-name ibuffer-sorting-mode))
                                 "view time")
@@ -2711,28 +2715,27 @@ will be inserted before the group at point."
   (setq show-trailing-whitespace nil)
   ;; disable `show-paren-mode' buffer-locally
   (if (bound-and-true-p show-paren-mode)
-      (set (make-local-variable 'show-paren-mode) nil))
-  (set (make-local-variable 'revert-buffer-function)
-       #'ibuffer-update)
-  (set (make-local-variable 'ibuffer-sorting-mode)
-       ibuffer-default-sorting-mode)
-  (set (make-local-variable 'ibuffer-sorting-reversep)
-       ibuffer-default-sorting-reversep)
-  (set (make-local-variable 'ibuffer-shrink-to-minimum-size)
-       ibuffer-default-shrink-to-minimum-size)
-  (set (make-local-variable 'ibuffer-display-maybe-show-predicates)
-       ibuffer-default-display-maybe-show-predicates)
-  (set (make-local-variable 'ibuffer-filtering-qualifiers) nil)
-  (set (make-local-variable 'ibuffer-filter-groups) nil)
-  (set (make-local-variable 'ibuffer-filter-group-kill-ring) nil)
-  (set (make-local-variable 'ibuffer-hidden-filter-groups) nil)
-  (set (make-local-variable 'ibuffer-compiled-formats) nil)
-  (set (make-local-variable 'ibuffer-cached-formats) nil)
-  (set (make-local-variable 'ibuffer-cached-eliding-string) nil)
-  (set (make-local-variable 'ibuffer-current-format) nil)
-  (set (make-local-variable 'ibuffer-did-modification) nil)
-  (set (make-local-variable 'ibuffer-tmp-hide-regexps) nil)
-  (set (make-local-variable 'ibuffer-tmp-show-regexps) nil)
+      (setq-local show-paren-mode nil))
+  (setq-local revert-buffer-function #'ibuffer-update)
+  (setq-local ibuffer-sorting-mode
+              ibuffer-default-sorting-mode)
+  (setq-local ibuffer-sorting-reversep
+              ibuffer-default-sorting-reversep)
+  (setq-local ibuffer-shrink-to-minimum-size
+              ibuffer-default-shrink-to-minimum-size)
+  (setq-local ibuffer-display-maybe-show-predicates
+              ibuffer-default-display-maybe-show-predicates)
+  (setq-local ibuffer-filtering-qualifiers nil)
+  (setq-local ibuffer-filter-groups nil)
+  (setq-local ibuffer-filter-group-kill-ring nil)
+  (setq-local ibuffer-hidden-filter-groups nil)
+  (setq-local ibuffer-compiled-formats nil)
+  (setq-local ibuffer-cached-formats nil)
+  (setq-local ibuffer-cached-eliding-string nil)
+  (setq-local ibuffer-current-format nil)
+  (setq-local ibuffer-did-modification nil)
+  (setq-local ibuffer-tmp-hide-regexps nil)
+  (setq-local ibuffer-tmp-show-regexps nil)
   (define-key ibuffer-mode-map [menu-bar edit] 'undefined)
   (define-key ibuffer-mode-map [menu-bar operate] (cons "Operate" ibuffer-mode-operate-map))
   (ibuffer-update-format)

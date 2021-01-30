@@ -69,7 +69,7 @@ major mode in effect."
   :group 'viper)
 
 (defcustom viper-want-ctl-h-help nil
-  "If non-nil, C-h gets bound to help-command; otherwise, C-h gets the usual Vi bindings."
+  "If non-nil, bind C-h to help-command; otherwise, C-h gets the usual Vi bindings."
   :type 'boolean
   :group 'viper)
 
@@ -184,7 +184,7 @@ In insert mode, this key also functions as Meta."
   :type 'string
   :group 'viper)
 
-(defconst viper-ESC-key [escape]
+(defconst viper-ESC-key (kbd "ESC")
   "Key used to ESC.")
 
 

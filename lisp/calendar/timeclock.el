@@ -4,7 +4,7 @@
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Created: 25 Mar 1999
-;; Version: 2.6.1
+;; Old-Version: 2.6.1
 ;; Keywords: calendar data
 
 ;; This file is part of GNU Emacs.
@@ -36,8 +36,6 @@
 
 ;; You'll probably want to bind the timeclock commands to some handy
 ;; keystrokes.  At the moment, C-x t is unused:
-;;
-;;   (require 'timeclock)
 ;;
 ;;   (define-key ctl-x-map "ti" 'timeclock-in)
 ;;   (define-key ctl-x-map "to" 'timeclock-out)
@@ -193,6 +191,8 @@ to today."
 (defcustom timeclock-load-hook nil
   "Hook that gets run after timeclock has been loaded."
   :type 'hook)
+(make-obsolete-variable 'timeclock-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defcustom timeclock-in-hook nil
   "A hook run every time an \"in\" event is recorded."
@@ -595,9 +595,9 @@ arguments of `completing-read'."
 (defun timeclock-ask-for-project ()
   "Ask the user for the project they are clocking into."
   (completing-read
-   (format "Clock into which project (default %s): "
-	   (or timeclock-last-project
-	       (car timeclock-project-list)))
+   (format-prompt "Clock into which project"
+	          (or timeclock-last-project
+	              (car timeclock-project-list)))
    timeclock-project-list
    nil nil nil nil
    (or timeclock-last-project

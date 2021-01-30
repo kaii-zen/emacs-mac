@@ -63,7 +63,34 @@ static Lisp_Object minibuf_prompt;
 
 static ptrdiff_t minibuf_prompt_width;
 
+static Lisp_Object nth_minibuffer (EMACS_INT depth);
+
 
+/* Return TRUE when a frame switch causes a minibuffer on the old
+   frame to move onto the new one. */
+static bool
+minibuf_follows_frame (void)
+{
+  return EQ (Fdefault_toplevel_value (Qminibuffer_follows_selected_frame),
+             Qt);
+}
+
+/* Return TRUE when a minibuffer always remains on the frame where it
+   was first invoked. */
+static bool
+minibuf_stays_put (void)
+{
+  return NILP (Fdefault_toplevel_value (Qminibuffer_follows_selected_frame));
+}
+
+/* Return TRUE when opening a (recursive) minibuffer causes
+   minibuffers on other frames to move to the selected frame.  */
+static bool
+minibuf_moves_frame_when_opened (void)
+{
+  return !NILP (Fdefault_toplevel_value (Qminibuffer_follows_selected_frame));
+}
+
 /* Put minibuf on currently selected frame's minibuffer.
    We do this whenever the user starts a new minibuffer
    or when a minibuffer exits.  */
@@ -76,37 +103,86 @@ choose_minibuf_frame (void)
       && !EQ (minibuf_window, XFRAME (selected_frame)->minibuffer_window))
     {
       struct frame *sf = XFRAME (selected_frame);
-      Lisp_Object buffer;
-
       /* I don't think that any frames may validly have a null minibuffer
 	 window anymore.  */
       if (NILP (sf->minibuffer_window))
 	emacs_abort ();
 
-      /* Under X, we come here with minibuf_window being the
-	 minibuffer window of the unused termcap window created in
-	 init_window_once.  That window doesn't have a buffer.  */
-      buffer = XWINDOW (minibuf_window)->contents;
-      if (BUFFERP (buffer))
-	/* Use set_window_buffer instead of Fset_window_buffer (see
-	   discussion of bug#11984, bug#12025, bug#12026).  */
-	set_window_buffer (sf->minibuffer_window, buffer, 0, 0);
       minibuf_window = sf->minibuffer_window;
+      /* If we've still got another minibuffer open, use its mini-window
+         instead.  */
+      if (minibuf_level > 1 && minibuf_stays_put ())
+        {
+          Lisp_Object buffer = get_minibuffer (minibuf_level);
+          Lisp_Object tail, frame;
+
+          FOR_EACH_FRAME (tail, frame)
+            if (EQ (XWINDOW (XFRAME (frame)->minibuffer_window)->contents,
+                    buffer))
+              {
+                minibuf_window = XFRAME (frame)->minibuffer_window;
+                break;
+              }
+        }
     }
 
-  /* Make sure no other frame has a minibuffer as its selected window,
-     because the text would not be displayed in it, and that would be
-     confusing.  Only allow the selected frame to do this,
-     and that only if the minibuffer is active.  */
+  if (minibuf_moves_frame_when_opened ()
+      && FRAMEP (selected_frame)
+      && FRAME_LIVE_P (XFRAME (selected_frame)))
+    /* Make sure no other frame has a minibuffer as its selected window,
+       because the text would not be displayed in it, and that would be
+       confusing.  Only allow the selected frame to do this,
+       and that only if the minibuffer is active.  */
   {
     Lisp_Object tail, frame;
+    struct frame *of;
 
     FOR_EACH_FRAME (tail, frame)
-      if (MINI_WINDOW_P (XWINDOW (FRAME_SELECTED_WINDOW (XFRAME (frame))))
-	  && !(EQ (frame, selected_frame)
-	       && minibuf_level > 0))
-	Fset_frame_selected_window (frame, Fframe_first_window (frame), Qnil);
+      if (!EQ (frame, selected_frame)
+          && minibuf_level > 1
+	  /* The frame's minibuffer can be on a different frame.  */
+	  && ! EQ (XWINDOW ((of = XFRAME (frame))->minibuffer_window)->frame,
+		   selected_frame))
+        {
+          if (MINI_WINDOW_P (XWINDOW (FRAME_SELECTED_WINDOW (of))))
+            Fset_frame_selected_window (frame, Fframe_first_window (frame),
+                                        Qnil);
+
+          if (!EQ (XWINDOW (of->minibuffer_window)->contents,
+                   nth_minibuffer (0)))
+            set_window_buffer (of->minibuffer_window,
+                               nth_minibuffer (0), 0, 0);
+        }
   }
+}
+
+/* If `minibuffer_follows_selected_frame' is t and we have a
+   minibuffer, move it from its current frame to the selected frame.
+   This function is intended to be called from `do_switch_frame' in
+   frame.c.  */
+void move_minibuffer_onto_frame (void)
+{
+  if (!minibuf_level)
+    return;
+  if (!minibuf_follows_frame ())
+    return;
+  if (FRAMEP (selected_frame)
+      && FRAME_LIVE_P (XFRAME (selected_frame))
+      && !EQ (minibuf_window, XFRAME (selected_frame)->minibuffer_window))
+    {
+      EMACS_INT i;
+      struct frame *sf = XFRAME (selected_frame);
+      Lisp_Object old_frame = XWINDOW (minibuf_window)->frame;
+      struct frame *of = XFRAME (old_frame);
+
+      /* Stack up all the (recursively) open minibuffers on the selected
+         mini_window.  */
+      for (i = 1; i <= minibuf_level; i++)
+	set_window_buffer (sf->minibuffer_window, nth_minibuffer (i), 0, 0);
+      minibuf_window = sf->minibuffer_window;
+      if (of != sf)
+	set_window_buffer (of->minibuffer_window, get_minibuffer (0), 0, 0);
+    }
 }
 
 DEFUN ("active-minibuffer-window", Factive_minibuffer_window,
@@ -251,7 +327,7 @@ read_minibuf_noninteractive (Lisp_Object prompt, bool expflag,
   else
     {
       xfree (line);
-      error ("Error reading from stdin");
+      xsignal1 (Qend_of_file, build_string ("Error reading from stdin"));
     }
 
   /* If Lisp form desired instead of string, parse it.  */
@@ -261,15 +337,31 @@ read_minibuf_noninteractive (Lisp_Object prompt, bool expflag,
   return val;
 }
 
-DEFUN ("minibufferp", Fminibufferp,
-       Sminibufferp, 0, 1, 0,
-       doc: /* Return t if BUFFER is a minibuffer.
-No argument or nil as argument means use current buffer as BUFFER.
-BUFFER can be a buffer or a buffer name.  */)
-  (Lisp_Object buffer)
+/* Return true when BUFFER is an active minibuffer.  */
+static bool
+live_minibuffer_p (Lisp_Object buffer)
 {
   Lisp_Object tem;
+  EMACS_INT i;
 
+  if (EQ (buffer, Fcar (Vminibuffer_list)))
+    /*  *Minibuf-0* is never active.  */
+    return false;
+  tem = Fcdr (Vminibuffer_list);
+  for (i = 1; i <= minibuf_level; i++, tem = Fcdr (tem))
+    if (EQ (Fcar (tem), buffer))
+      return true;
+  return false;
+}
+
+DEFUN ("minibufferp", Fminibufferp,
+       Sminibufferp, 0, 2, 0,
+       doc: /* Return t if BUFFER is a minibuffer.
+No argument or nil as argument means use current buffer as BUFFER.
+BUFFER can be a buffer or a buffer name.  If LIVE is non-nil, then
+return t only if BUFFER is an active minibuffer.  */)
+  (Lisp_Object buffer, Lisp_Object live)
+{
   if (NILP (buffer))
     buffer = Fcurrent_buffer ();
   else if (STRINGP (buffer))
@@ -277,8 +369,67 @@ BUFFER can be a buffer or a buffer name.  */)
   else
     CHECK_BUFFER (buffer);
 
-  tem = Fmemq (buffer, Vminibuffer_list);
-  return ! NILP (tem) ? Qt : Qnil;
+  return (NILP (live)
+          ? !NILP (Fmemq (buffer, Vminibuffer_list))
+          : live_minibuffer_p (buffer))
+    ? Qt : Qnil;
+}
+
+DEFUN ("innermost-minibuffer-p", Finnermost_minibuffer_p,
+       Sinnermost_minibuffer_p, 0, 1, 0,
+       doc: /* Return t if BUFFER is the most nested active minibuffer.
+No argument or nil as argument means use the current buffer as BUFFER.  */)
+  (Lisp_Object buffer)
+{
+  if (NILP (buffer))
+    buffer = Fcurrent_buffer ();
+  return EQ (buffer, (Fcar (Fnthcdr (make_fixnum (minibuf_level),
+				     Vminibuffer_list))))
+    ? Qt
+    : Qnil;
+}
+
+/* Return the nesting depth of the active minibuffer BUFFER, or 0 if
+   BUFFER isn't such a thing.  If BUFFER is nil, this means use the current
+   buffer.  */
+EMACS_INT
+this_minibuffer_depth (Lisp_Object buffer)
+{
+  EMACS_INT i;
+  Lisp_Object bufs;
+
+  if (NILP (buffer))
+    buffer = Fcurrent_buffer ();
+  for (i = 1, bufs = Fcdr (Vminibuffer_list);
+       i <= minibuf_level;
+       i++, bufs = Fcdr (bufs))
+    if (EQ (Fcar (bufs), buffer))
+      return i;
+  return 0;
+}
+
+DEFUN ("abort-minibuffers", Fabort_minibuffers, Sabort_minibuffers, 0, 0, "",
+       doc: /* Abort the current minibuffer.
+If we are not currently in the innermost minibuffer, prompt the user to
+confirm the aborting of the current minibuffer and all contained ones.  */)
+  (void)
+{
+  EMACS_INT minibuf_depth = this_minibuffer_depth (Qnil);
+  Lisp_Object array[2];
+  AUTO_STRING (fmt, "Abort %s minibuffer levels? ");
+
+  if (!minibuf_depth)
+    error ("Not in a minibuffer");
+  if (minibuf_depth < minibuf_level)
+    {
+      array[0] = fmt;
+      array[1] = make_fixnum (minibuf_level - minibuf_depth + 1);
+      if (!NILP (Fyes_or_no_p (Fformat (2, array))))
+	Fthrow (Qexit, Qt);
+    }
+  else
+    Fthrow (Qexit, Qt);
+  return Qnil;
 }
 
 DEFUN ("minibuffer-prompt-end", Fminibuffer_prompt_end,
@@ -356,6 +507,7 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
   Lisp_Object val;
   ptrdiff_t count = SPECPDL_INDEX ();
   Lisp_Object mini_frame, ambient_dir, minibuffer, input_method;
+  Lisp_Object calling_frame = selected_frame;
   Lisp_Object enable_multibyte;
   EMACS_INT pos = 0;
   /* String to add to the history.  */
@@ -414,12 +566,13 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
   if (!enable_recursive_minibuffers
       && minibuf_level > 0)
     {
+      Lisp_Object str
+	= build_string ("Command attempted to use minibuffer while in minibuffer");
       if (EQ (selected_window, minibuf_window))
-	error ("Command attempted to use minibuffer while in minibuffer");
+	Fsignal (Quser_error, (list1 (str)));
       else
 	/* If we're in another window, cancel the minibuffer that's active.  */
-	Fthrow (Qexit,
-		build_string ("Command attempted to use minibuffer while in minibuffer"));
+	Fthrow (Qexit, str);
     }
 
   if ((noninteractive
@@ -432,6 +585,8 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
       return unbind_to (count, val);
     }
 
+  minibuf_level++;         /* Before calling choose_minibuf_frame.  */
+
   /* Choose the minibuffer window and frame, and take action on them.  */
 
   /* Prepare for restoring the current buffer since choose_minibuf_frame
@@ -443,14 +598,18 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
   record_unwind_protect_void (choose_minibuf_frame);
 
   record_unwind_protect (restore_window_configuration,
-			 Fcurrent_window_configuration (Qnil));
+                         Fcons (Qt, Fcurrent_window_configuration (Qnil)));
 
   /* If the minibuffer window is on a different frame, save that
      frame's configuration too.  */
   mini_frame = WINDOW_FRAME (XWINDOW (minibuf_window));
   if (!EQ (mini_frame, selected_frame))
     record_unwind_protect (restore_window_configuration,
-			   Fcurrent_window_configuration (mini_frame));
+			   Fcons (/* Arrange for the frame later to be
+                                     switched back to the calling
+                                     frame. */
+                                  Qnil,
+                                  Fcurrent_window_configuration (mini_frame)));
 
   /* If the minibuffer is on an iconified or invisible frame,
      make it visible now.  */
@@ -483,7 +642,6 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
     = Fcons (Fthis_command_keys_vector (), minibuf_save_list);
 
   record_unwind_protect_void (read_minibuf_unwind);
-  minibuf_level++;
   /* We are exiting the minibuffer one way or the other, so run the hook.
      It should be run before unwinding the minibuf settings.  Do it
      separately from read_minibuf_unwind because we need to make sure that
@@ -565,8 +723,8 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
   if (minibuf_level == 1 || !EQ (minibuf_window, selected_window))
     minibuf_selected_window = selected_window;
 
-  /* Empty out the minibuffers of all frames other than the one
-     where we are going to display one now.
+  /* Empty out the minibuffers of all frames, except those frames
+     where there is an active minibuffer.
      Set them to point to ` *Minibuf-0*', which is always empty.  */
   empty_minibuf = get_minibuffer (0);
 
@@ -574,13 +732,29 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
     {
       Lisp_Object root_window = Fframe_root_window (frame);
       Lisp_Object mini_window = XWINDOW (root_window)->next;
+      Lisp_Object buffer;
 
-      if (! NILP (mini_window) && ! EQ (mini_window, minibuf_window)
-	  && !NILP (Fwindow_minibuffer_p (mini_window)))
-	/* Use set_window_buffer instead of Fset_window_buffer (see
-	   discussion of bug#11984, bug#12025, bug#12026).  */
-	set_window_buffer (mini_window, empty_minibuf, 0, 0);
+      if (!NILP (mini_window) && !EQ (mini_window, minibuf_window)
+          && !NILP (Fwindow_minibuffer_p (mini_window)))
+        {
+          buffer = XWINDOW (mini_window)->contents;
+          if (!live_minibuffer_p (buffer))
+            /* Use set_window_buffer instead of Fset_window_buffer (see
+               discussion of bug#11984, bug#12025, bug#12026).  */
+            set_window_buffer (mini_window, empty_minibuf, 0, 0);
+        }
     }
+
+  if (minibuf_moves_frame_when_opened ())
+  {
+    EMACS_INT i;
+
+    /* Stack up all the (recursively) open minibuffers on the selected
+       mini_window.  */
+    for (i = 1; i < minibuf_level; i++)
+      set_window_buffer (XFRAME (mini_frame)->minibuffer_window,
+                         nth_minibuffer (i), 0, 0);
+  }
 
   /* Display this minibuffer in the proper window.  */
   /* Use set_window_buffer instead of Fset_window_buffer (see
@@ -663,6 +837,20 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
 
   recursive_edit_1 ();
 
+  /* We've exited the recursive edit without an error, so switch the
+     current window away from the expired minibuffer window.  */
+  {
+    Lisp_Object prev = Fprevious_window (minibuf_window, Qnil, Qnil);
+    /* PREV can be on a different frame when we have a minibuffer only
+       frame, the other frame's minibuffer window is MINIBUF_WINDOW,
+       and its "focus window" is also MINIBUF_WINDOW.  */
+    while (!EQ (prev, minibuf_window)
+	   && !EQ (selected_frame, WINDOW_FRAME (XWINDOW (prev))))
+      prev = Fprevious_window (prev, Qnil, Qnil);
+    if (!EQ (prev, minibuf_window))
+      Fset_frame_selected_window (selected_frame, prev, Qnil);
+  }
+
   /* If cursor is on the minibuffer line,
      show the user we have exited by putting it in column 0.  */
   if (XWINDOW (minibuf_window)->cursor.vpos >= 0
@@ -701,6 +889,12 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
      in set-window-configuration.  */
   unbind_to (count, Qnil);
 
+  /* Switch the frame back to the calling frame.  */
+  if (!EQ (selected_frame, calling_frame)
+      && FRAMEP (calling_frame)
+      && FRAME_LIVE_P (XFRAME (calling_frame)))
+    call2 (intern ("select-frame-set-input-focus"), calling_frame, Qnil);
+
   /* Add the value to the appropriate history list, if any.  This is
      done after the previous buffer has been made current again, in
      case the history variable is buffer-local.  */
@@ -712,6 +906,24 @@ read_minibuf (Lisp_Object map, Lisp_Object initial, Lisp_Object prompt,
     val = string_to_object (val, defalt);
 
   return val;
+}
+
+/* Return true if BUF is a particular existing minibuffer.  */
+bool
+is_minibuffer (EMACS_INT depth, Lisp_Object buf)
+{
+  Lisp_Object tail = Fnthcdr (make_fixnum (depth), Vminibuffer_list);
+  return
+    !NILP (tail)
+    && EQ (Fcar (tail), buf);
+}
+
+/* Return the DEPTHth minibuffer, or nil if such does not yet exist.  */
+static Lisp_Object
+nth_minibuffer (EMACS_INT depth)
+{
+  Lisp_Object tail = Fnthcdr (make_fixnum (depth), Vminibuffer_list);
+  return XCAR (tail);
 }
 
 /* Return a buffer to be used as the minibuffer at depth `depth'.
@@ -733,7 +945,7 @@ get_minibuffer (EMACS_INT depth)
       static char const name_fmt[] = " *Minibuf-%"pI"d*";
       char name[sizeof name_fmt + INT_STRLEN_BOUND (EMACS_INT)];
       AUTO_STRING_WITH_LEN (lname, name, sprintf (name, name_fmt, depth));
-      buf = Fget_buffer_create (lname);
+      buf = Fget_buffer_create (lname, Qnil);
 
       /* Although the buffer's name starts with a space, undo should be
 	 enabled in it.  */
@@ -775,6 +987,7 @@ read_minibuf_unwind (void)
 {
   Lisp_Object old_deactivate_mark;
   Lisp_Object window;
+  Lisp_Object future_mini_window;
 
   /* If this was a recursive minibuffer,
      tie the minibuffer window back to the outer level minibuffer buffer.  */
@@ -809,6 +1022,7 @@ read_minibuf_unwind (void)
   if (FRAME_LIVE_P (XFRAME (WINDOW_FRAME (XWINDOW (temp)))))
     minibuf_window = temp;
 #endif
+  future_mini_window = Fcar (minibuf_save_list);
   minibuf_save_list = Fcdr (minibuf_save_list);
 
   /* Erase the minibuffer we were using at this level.  */
@@ -825,7 +1039,8 @@ read_minibuf_unwind (void)
 
   /* When we get to the outmost level, make sure we resize the
      mini-window back to its normal size.  */
-  if (minibuf_level == 0)
+  if (minibuf_level == 0
+      || !EQ (selected_frame, WINDOW_FRAME (XWINDOW (future_mini_window))))
     resize_mini_window (XWINDOW (window), 0);
 
   /* Deal with frames that should be removed when exiting the
@@ -859,6 +1074,13 @@ read_minibuf_unwind (void)
   call0 (intern ("minibuffer-inactive-mode"));
 }
 
+
+void
+barf_if_interaction_inhibited (void)
+{
+  if (inhibit_interaction)
+    xsignal0 (Qinhibited_interaction);
+}
 
 DEFUN ("read-from-minibuffer", Fread_from_minibuffer,
        Sread_from_minibuffer, 1, 7, 0,
@@ -904,6 +1126,9 @@ If the variable `minibuffer-allow-text-properties' is non-nil,
  then the string which is returned includes whatever text properties
  were present in the minibuffer.  Otherwise the value has no text properties.
 
+If `inhibit-interaction' is non-nil, this function will signal an
+  `inhibited-interaction' error.
+
 The remainder of this documentation string describes the
 INITIAL-CONTENTS argument in more detail.  It is only relevant when
 studying existing code, or when HIST is a cons.  If non-nil,
@@ -918,6 +1143,8 @@ and some related functions, which use zero-indexing for POSITION.  */)
   (Lisp_Object prompt, Lisp_Object initial_contents, Lisp_Object keymap, Lisp_Object read, Lisp_Object hist, Lisp_Object default_value, Lisp_Object inherit_input_method)
 {
   Lisp_Object histvar, histpos, val;
+
+  barf_if_interaction_inhibited ();
 
   CHECK_STRING (prompt);
   if (NILP (keymap))
@@ -992,11 +1219,17 @@ point positioned at the end, so that SPACE will accept the input.
 \(Actually, INITIAL can also be a cons of a string and an integer.
 Such values are treated as in `read-from-minibuffer', but are normally
 not useful in this function.)
+
 Third arg INHERIT-INPUT-METHOD, if non-nil, means the minibuffer inherits
-the current input method and the setting of`enable-multibyte-characters'.  */)
+the current input method and the setting of`enable-multibyte-characters'.
+
+If `inhibit-interaction' is non-nil, this function will signal an
+`inhibited-interaction' error.  */)
   (Lisp_Object prompt, Lisp_Object initial, Lisp_Object inherit_input_method)
 {
   CHECK_STRING (prompt);
+  barf_if_interaction_inhibited ();
+
   return read_minibuf (Vminibuffer_local_ns_map, initial, prompt,
 		       0, Qminibuffer_history, make_fixnum (0), Qnil, 0,
 		       !NILP (inherit_input_method));
@@ -1039,7 +1272,7 @@ Prompt with PROMPT.  */)
 DEFUN ("read-variable", Fread_variable, Sread_variable, 1, 2, 0,
        doc: /* Read the name of a user option and return it as a symbol.
 Prompt with PROMPT.  By default, return DEFAULT-VALUE or its first element
-if it is a list.
+if it is a list of strings.
 A user option, or customizable variable, is one for which
 `custom-variable-p' returns non-nil.  */)
   (Lisp_Object prompt, Lisp_Object default_value)
@@ -1211,9 +1444,6 @@ is used to further constrain the set of candidates.  */)
       obsize = ASIZE (collection);
       bucket = AREF (collection, idx);
     }
-
-  if (HASH_TABLE_P (collection))
-    hash_rehash_if_needed (XHASH_TABLE (collection));
 
   while (1)
     {
@@ -1914,6 +2144,8 @@ syms_of_minibuf (void)
   staticpro (&minibuf_prompt);
   staticpro (&minibuf_save_list);
 
+  DEFSYM (Qminibuffer_follows_selected_frame,
+          "minibuffer-follows-selected-frame");
   DEFSYM (Qcompletion_ignore_case, "completion-ignore-case");
   DEFSYM (Qminibuffer_default, "minibuffer-default");
   Fset (Qminibuffer_default, Qnil);
@@ -1935,9 +2167,6 @@ syms_of_minibuf (void)
   DEFSYM (Qminibuffer_setup_hook, "minibuffer-setup-hook");
   DEFSYM (Qminibuffer_exit_hook, "minibuffer-exit-hook");
 
-  /* The maximum length of a minibuffer history.  */
-  DEFSYM (Qhistory_length, "history-length");
-
   DEFSYM (Qcurrent_input_method, "current-input-method");
   DEFSYM (Qactivate_input_method, "activate-input-method");
   DEFSYM (Qcase_fold_search, "case-fold-search");
@@ -1956,6 +2185,16 @@ For example, `eval-expression' uses this.  */);
 	       doc: /* If this is non-nil, `read-buffer' does its work by calling this function.
 The function is called with the arguments passed to `read-buffer'.  */);
   Vread_buffer_function = Qnil;
+
+  DEFVAR_LISP ("minibuffer-follows-selected-frame", minibuffer_follows_selected_frame,
+               doc: /* t means the active minibuffer always displays on the selected frame.
+Nil means that a minibuffer will appear only in the frame which created it.
+Any other value means the minibuffer will move onto another frame, but
+only when the user starts using a minibuffer there.
+
+Any buffer local or dynamic binding of this variable is ignored.  Only the
+default top level value is used.  */);
+  minibuffer_follows_selected_frame = Qt;
 
   DEFVAR_BOOL ("read-buffer-completion-ignore-case",
 	       read_buffer_completion_ignore_case,
@@ -2100,6 +2339,15 @@ This variable also overrides the default character that `read-passwd'
 uses to hide passwords.  */);
   Vread_hide_char = Qnil;
 
+  DEFVAR_BOOL ("inhibit-interaction",
+	       inhibit_interaction,
+	       doc: /* Non-nil means any user interaction will signal an error.
+This variable can be bound when user interaction can't be performed,
+for instance when running a headless Emacs server.  Functions like
+`read-from-minibuffer' (and the like) will signal `inhibited-interaction'
+instead. */);
+  inhibit_interaction = 0;
+
   defsubr (&Sactive_minibuffer_window);
   defsubr (&Sset_minibuffer_window);
   defsubr (&Sread_from_minibuffer);
@@ -2113,6 +2361,8 @@ uses to hide passwords.  */);
   defsubr (&Sminibuffer_prompt);
 
   defsubr (&Sminibufferp);
+  defsubr (&Sinnermost_minibuffer_p);
+  defsubr (&Sabort_minibuffers);
   defsubr (&Sminibuffer_prompt_end);
   defsubr (&Sminibuffer_contents);
   defsubr (&Sminibuffer_contents_no_properties);

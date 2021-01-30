@@ -701,8 +701,8 @@ non-nil if the minor mode is enabled."
 	(when (and (local-variable-p 'header-line-format (current-buffer))
 		   (not (eq header-line-format
 			    semantic-stickyfunc-header-line-format)))
-	  (set (make-local-variable 'semantic-stickyfunc-old-hlf)
-	       header-line-format))
+          (setq-local semantic-stickyfunc-old-hlf
+                      header-line-format))
 	(setq header-line-format semantic-stickyfunc-header-line-format))
     ;; Disable sticky func mode
     ;; Restore previous buffer local value of header line format if
@@ -837,7 +837,8 @@ Argument EVENT describes the event that caused this function to be called."
   "Keymap for highlight-func minor mode.")
 
 (defvar semantic-highlight-func-popup-menu nil
-  "Menu used if the user clicks on the header line used by `semantic-highlight-func-mode'.")
+  "Menu used if the user clicks on the header line.
+Used by `semantic-highlight-func-mode'.")
 
 (easy-menu-define
   semantic-highlight-func-popup-menu

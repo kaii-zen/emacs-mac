@@ -1,4 +1,4 @@
-;;; nroff-mode.el --- GNU Emacs major mode for editing nroff source
+;;; nroff-mode.el --- GNU Emacs major mode for editing nroff source  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 1985-1986, 1994-1995, 1997, 2001-2021 Free Software
 ;; Foundation, Inc.
@@ -43,14 +43,12 @@
 
 (defcustom nroff-electric-mode nil
   "Non-nil means automatically closing requests when you insert an open."
-  :group 'nroff
   :type 'boolean)
 
 (defvar nroff-mode-map
   (let ((map (make-sparse-keymap))
 	(menu-map (make-sparse-keymap)))
     (define-key map "\t"  'tab-to-tab-stop)
-    (define-key map "\es" 'center-line)
     (define-key map "\e?" 'nroff-count-text-lines)
     (define-key map "\n"  'nroff-electric-newline)
     (define-key map "\en" 'nroff-forward-text-line)
@@ -112,7 +110,7 @@
    ;; arguments in common cases, like \f.
    (concat "\\\\"		      ; backslash
 	 "\\("			      ; followed by various possibilities
-	 (mapconcat 'identity
+         (mapconcat #'identity
 		    '("[f*n]*\\[.+?]" ; some groff extensions
 		      "(.."	      ; two chars after (
 		      "[^(\"#]"	      ; single char escape
@@ -120,13 +118,11 @@
 	 "\\)")
    )
   "Font-lock highlighting control in `nroff-mode'."
-  :group 'nroff
   :type '(repeat regexp))
 
 (defcustom nroff-mode-hook nil
   "Hook run by function `nroff-mode'."
-  :type 'hook
-  :group 'nroff)
+  :type 'hook)
 
 ;;;###autoload
 (define-derived-mode nroff-mode text-mode "Nroff"
@@ -135,35 +131,32 @@
 Turning on Nroff mode runs `text-mode-hook', then `nroff-mode-hook'.
 Also, try `nroff-electric-mode', for automatically inserting
 closing requests for requests that are used in matched pairs."
-  (set (make-local-variable 'font-lock-defaults)
-       ;; SYNTAX-BEGIN is set to backward-paragraph to avoid slow-down
-       ;; near the end of large buffers due to searching to buffer's
-       ;; beginning.
-       '(nroff-font-lock-keywords nil t nil backward-paragraph))
-  (set (make-local-variable 'outline-regexp) "\\.H[ ]+[1-7]+ ")
-  (set (make-local-variable 'outline-level) 'nroff-outline-level)
+  (setq-local font-lock-defaults
+              ;; SYNTAX-BEGIN is set to backward-paragraph to avoid slow-down
+              ;; near the end of large buffers due to searching to buffer's
+              ;; beginning.
+              '(nroff-font-lock-keywords nil t nil backward-paragraph))
+  (setq-local outline-regexp "\\.H[ ]+[1-7]+ ")
+  (setq-local outline-level 'nroff-outline-level)
   ;; now define a bunch of variables for use by commands in this mode
-  (set (make-local-variable 'page-delimiter) "^\\.\\(bp\\|SK\\|OP\\)")
-  (set (make-local-variable 'paragraph-start)
-       (concat "[.']\\|" paragraph-start))
-  (set (make-local-variable 'paragraph-separate)
-       (concat "[.']\\|" paragraph-separate))
+  (setq-local page-delimiter "^\\.\\(bp\\|SK\\|OP\\)")
+  (setq-local paragraph-start (concat "[.']\\|" paragraph-start))
+  (setq-local paragraph-separate (concat "[.']\\|" paragraph-separate))
   ;; Don't auto-fill directive lines starting . or ' since they normally
   ;; have to be one line.  But do auto-fill comments .\" .\# and '''.
   ;; Comment directives (those starting . or ') are [.'][ \t]*\\[#"]
   ;; or ''', and this regexp is everything except those.  So [.']
   ;; followed by not backslash and not ' or followed by backslash but
   ;; then not # or "
-  (set (make-local-variable 'auto-fill-inhibit-regexp)
-       "[.'][ \t]*\\([^ \t\\']\\|\\\\[^#\"]\\)")
+  (setq-local auto-fill-inhibit-regexp
+              "[.'][ \t]*\\([^ \t\\']\\|\\\\[^#\"]\\)")
   ;; comment syntax added by mit-erl!gildea 18 Apr 86
-  (set (make-local-variable 'comment-start) "\\\" ")
-  (set (make-local-variable 'comment-start-skip) "\\\\[\"#][ \t]*")
-  (set (make-local-variable 'comment-column) 24)
-  (set (make-local-variable 'comment-indent-function) 'nroff-comment-indent)
-  (set (make-local-variable 'comment-insert-comment-function)
-       'nroff-insert-comment-function)
-  (set (make-local-variable 'imenu-generic-expression) nroff-imenu-expression))
+  (setq-local comment-start "\\\" ")
+  (setq-local comment-start-skip "\\\\[\"#][ \t]*")
+  (setq-local comment-column 24)
+  (setq-local comment-indent-function #'nroff-comment-indent)
+  (setq-local comment-insert-comment-function #'nroff-insert-comment-function)
+  (setq-local imenu-generic-expression nroff-imenu-expression))
 
 (defun nroff-outline-level ()
   (save-excursion

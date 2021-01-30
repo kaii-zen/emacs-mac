@@ -3,7 +3,7 @@
 ;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
 
 ;; Author: Alex Schroeder <alex@gnu.org>
-;; Version: 1.0.2
+;; Old-Version: 1.0.2
 ;; Keywords: comm
 
 ;; This file is part of GNU Emacs.
@@ -36,12 +36,12 @@
 ;; SQL buffer.
 ;;
 ;; (add-hook 'sql-mode-hook
-;;	   (function (lambda ()
-;;		       (master-mode t)
-;;		       (master-set-slave sql-buffer))))
+;;            (lambda ()
+;;              (master-mode t)
+;;              (master-set-slave sql-buffer)))
 ;; (add-hook 'sql-set-sqli-hook
-;;	   (function (lambda ()
-;;		       (master-set-slave sql-buffer))))
+;;            (lambda ()
+;;              (master-set-slave sql-buffer)))
 
 ;;; Thanks to all the people who helped me out:
 ;;
@@ -96,8 +96,7 @@ yourself the value of `master-of' by calling `master-show-slave'."
   "Makes BUFFER the slave of the current buffer.
 Use \\[master-mode] to toggle control of the slave buffer."
   (interactive "bSlave: ")
-  (make-local-variable 'master-of)
-  (setq master-of buffer)
+  (setq-local master-of buffer)
   (run-hooks 'master-set-slave-hook))
 
 (defun master-show-slave ()

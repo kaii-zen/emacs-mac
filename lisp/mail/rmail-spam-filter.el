@@ -133,7 +133,7 @@ If any element matches the \"From\" header, the message is
 flagged as a valid, non-spam message.  E.g., if your domain is
 \"emacs.com\" then including \"emacs\\\\.com\" in this list would
 flag all mail (purporting to be) from your colleagues as valid."
-  :type '(repeat string)
+  :type '(repeat regexp)
   :group 'rmail-spam-filter)
 
 (defcustom rsf-definitions-alist nil
@@ -157,22 +157,22 @@ A rule matches only if all the specified elements match."
           (list :format "%v"
 	   (cons :format "%v" :value (from . "")
 		 (const :format ""  from)
-		 (string :tag "From"  ""))
+		 (regexp :tag "From"  ""))
 	   (cons :format "%v" :value (to . "")
 		 (const :format ""  to)
-		 (string :tag "To"  ""))
+		 (regexp :tag "To"  ""))
 	   (cons :format "%v" :value (subject . "")
 		 (const :format ""  subject)
-		 (string :tag "Subject"  ""))
+		 (regexp :tag "Subject"  ""))
 	   (cons :format "%v" :value (content-type . "")
 		 (const :format ""  content-type)
-		 (string :tag "Content-Type"  ""))
+		 (regexp :tag "Content-Type"  ""))
 	   (cons :format "%v" :value (contents . "")
 		 (const :format ""  contents)
-		 (string :tag "Contents"  ""))
+		 (regexp :tag "Contents"  ""))
 	   (cons :format "%v" :value (x-spam-status . "")
 		 (const :format ""  x-spam-status)
-		 (string :tag "X-Spam-Status"  ""))
+		 (regexp :tag "X-Spam-Status"  ""))
 	   (cons :format "%v" :value (action . output-and-delete)
 		 (const :format "" action)
 		 (choice :tag "Action selection"
@@ -213,6 +213,16 @@ the cdr is set to t.  Else, the car is set to nil."
           ;; Note that the total absence of a header specified in the
           ;; rule means this cannot be spam.
           (setcar result nil)))))
+
+;; Don't spuriously advance to the next unseen message while
+;; prompting, because that causes it to then be missed while actually
+;; reading mail afterwards!  Call this instead of
+;; rmail-first-unseen-message.
+(defun rsf--rmail-last-seen-message ()
+  (max 1
+       ;; 'rmail-first-unseen-message' can return nil in a completely
+       ;; empty buffer.
+       (1- (or (rmail-first-unseen-message) 1))))
 
 (defun rmail-spam-filter (msg)
   "Return nil if message number MSG is spam based on `rsf-definitions-alist'.
@@ -327,8 +337,7 @@ it from rmail file.  Called for each new message retrieved by
       (if (and (car maybe-spam) (cdr maybe-spam))
           ;; Temporarily set rmail-current-message in order to output
           ;; and delete the spam msg if needed:
-          (let ((rmail-current-message msg) ; FIXME does this do anything?
-                (action (cdr (assq 'action
+          (let ((action (cdr (assq 'action
                                    (nth num-element rsf-definitions-alist))))
                 (newfile (not (file-exists-p rsf-file))))
             ;; Check action item in rsf-definitions-alist and do it.
@@ -337,7 +346,7 @@ it from rmail file.  Called for each new message retrieved by
               ;; Else the prompt to write a new file leaves the raw
               ;; mbox buffer visible.
               (and newfile
-                   (rmail-show-message (rmail-first-unseen-message) t))
+                   (rmail-show-message (rsf--rmail-last-seen-message) t))
               (rmail-output rsf-file)
               ;; Swap back, else rmail-get-new-mail-1 gets confused.
               (when newfile
@@ -377,7 +386,7 @@ This is called at the end of `rmail-get-new-mail-1' if there is new mail."
 	      (sleep-for rsf-sleep-after-message))
 	  (when (> nspam 0)
 	    ;; Otherwise sleep or expunge prompt leaves raw mbox buffer showing.
-	    (rmail-show-message (or (rmail-first-unseen-message) 1) t)
+	    (rmail-show-message (or (rsf--rmail-last-seen-message) 1) t)
 	    (unwind-protect
 		(progn
 		  (if rsf-beep (ding t))

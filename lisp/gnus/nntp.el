@@ -309,7 +309,7 @@ backend doesn't catch this error.")
 
 (defun nntp-record-command (string)
   "Record the command STRING."
-  (with-current-buffer (get-buffer-create "*nntp-log*")
+  (with-current-buffer (gnus-get-buffer-create "*nntp-log*")
     (goto-char (point-max))
     (insert (format-time-string "%Y%m%dT%H%M%S.%3N")
 	    " " nntp-address " " string "\n")))
@@ -600,7 +600,7 @@ retried once before actually displaying the error report."
     nil)))
 
 (defun nntp-with-open-group-function (group server connectionless bodyfun)
-  "Protect against servers that don't like clients that keep idle connections opens.
+  "Protect against servers that don't like clients that keep idle connections open.
 The problem being that these servers may either close a connection or
 simply ignore any further requests on a connection.  Closed
 connections are not detected until `accept-process-output' has updated
@@ -651,7 +651,7 @@ command whose response triggered the error."
     nntp-with-open-group-internal))
 
 (defmacro nntp-with-open-group (group server &optional connectionless &rest forms)
-  "Protect against servers that don't like clients that keep idle connections opens.
+  "Protect against servers that don't like clients that keep idle connections open.
 The problem being that these servers may either close a connection or
 simply ignore any further requests on a connection.  Closed
 connections are not detected until `accept-process-output' has updated
@@ -1209,7 +1209,7 @@ If SEND-IF-FORCE, only send authinfo to the server if the
 			  (read-passwd (format "NNTP (%s@%s) password: "
 					       user nntp-address)))))))
 	  (if (not result)
-	      (signal 'nntp-authinfo-rejected "Password rejected")
+	      (error "Password rejected")
 	    result))))))
 
 ;;; Internal functions.
@@ -1247,8 +1247,8 @@ If SEND-IF-FORCE, only send authinfo to the server if the
 	  (and nntp-connection-timeout
 	       (run-at-time
 		nntp-connection-timeout nil
-		`(lambda ()
-		   (nntp-kill-buffer ,pbuffer)))))
+		(lambda ()
+		  (nntp-kill-buffer pbuffer)))))
 	 (process
 	  (condition-case err
 	      (let ((coding-system-for-read 'binary)
@@ -1263,7 +1263,17 @@ If SEND-IF-FORCE, only send authinfo to the server if the
 		     "nntpd" pbuffer nntp-address nntp-port-number
 		     :type (cadr (assoc nntp-open-connection-function map))
 		     :end-of-command "^\\([2345]\\|[.]\\).*\n"
-		     :capability-command "HELP\r\n"
+		     :capability-command
+		     (lambda (greeting)
+		       (if (and greeting
+				(string-match "Typhoon" greeting))
+			   ;; Certain versions of the Typhoon server
+			   ;; doesn't understand the CAPABILITIES
+			   ;; command, but includes the capability
+			   ;; data in the HELP command instead.
+			   "HELP\r\n"
+			 ;; Use the correct command for everything else.
+			 "CAPABILITIES\r\n"))
 		     :success "^3"
 		     :starttls-function
 		     (lambda (capabilities)
@@ -1741,7 +1751,8 @@ If SEND-IF-FORCE, only send authinfo to the server if the
 ;; ==========================================================================
 
 (defvoo nntp-open-telnet-envuser nil
-  "If non-nil, telnet session (client and server both) will support the ENVIRON option and not prompt for login name.")
+  "If non-nil, telnet session supports the ENVIRON option.
+Don't prompt for login name.  This applies to both client and server.")
 
 (defvoo nntp-telnet-shell-prompt "bash\\|[$>] *\r?$"
   "Regular expression to match the shell prompt on the remote machine.")

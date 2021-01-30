@@ -22,6 +22,7 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Code:
+;;; Prelude
 
 (eval-when-compile (require 'cl-lib))
 
@@ -33,6 +34,8 @@
 
 (define-obsolete-variable-alias 'epg-bug-report-address
   'report-emacs-bug-address "27.1")
+
+;;; Options
 
 (defgroup epg ()
   "Interface to the GNU Privacy Guard (GnuPG)."
@@ -106,6 +109,8 @@ through the minibuffer, instead of external Pinentry program."
 Note that the buffer name starts with a space."
   :type 'boolean)
 
+;;; Constants
+
 (defconst epg-gpg-minimum-version "1.4.3")
 (defconst epg-gpg2-minimum-version "2.1.6")
 
@@ -132,6 +137,8 @@ suitable for the use with Emacs.")
 The first element of each entry is protocol symbol, which is
 either `OpenPGP' or `CMS'.  The second element is a function
 which constructs a configuration object (actually a plist).")
+
+;;; "Configuration"
 
 (defvar epg--configurations nil)
 
@@ -202,13 +209,13 @@ version requirement is met."
 	(cond
 	 ((eq type 'group)
 	  (if (string-match "\\`\\([^:]+\\):" args)
-		  (setq groups
-			(cons (cons (downcase (match-string 1 args))
-				    (delete "" (split-string
-						(substring args
-							   (match-end 0))
-						";")))
-			      groups))
+	      (setq groups
+		    (cons (cons (downcase (match-string 1 args))
+				(delete "" (split-string
+					    (substring args
+						       (match-end 0))
+					    ";")))
+			  groups))
 	    (if epg-debug
 		(message "Invalid group configuration: %S" args))))
 	 ((memq type '(pubkey cipher digest compress))

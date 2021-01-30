@@ -21,7 +21,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <config.h>
 
 #include "lisp.h"
-#include "ptr-bounds.h"
 #include "character.h"
 #include "buffer.h"
 #include "keyboard.h"
@@ -284,6 +283,11 @@ invoke it (via an `interactive' spec that contains, for instance, an
   Lisp_Object save_real_this_command = Vreal_this_command;
   Lisp_Object save_last_command = KVAR (current_kboard, Vlast_command);
 
+  /* Bound recursively so that code can check the current command from
+     code running from minibuffer hooks (and the like), without being
+     overwritten by subsequent minibuffer calls.  */
+  specbind (Qcurrent_minibuffer_command, Vthis_command);
+
   if (NILP (keys))
     keys = this_command_keys, key_count = this_command_key_count;
   else
@@ -440,9 +444,6 @@ invoke it (via an `interactive' spec that contains, for instance, an
   signed char *varies = (signed char *) (visargs + nargs);
 
   memclear (args, nargs * (2 * word_size + 1));
-  args = ptr_bounds_clip (args, nargs * sizeof *args);
-  visargs = ptr_bounds_clip (visargs, nargs * sizeof *visargs);
-  varies = ptr_bounds_clip (varies, nargs * sizeof *varies);
 
   if (!NILP (enable))
     specbind (Qenable_recursive_minibuffers, Qt);
@@ -716,7 +717,7 @@ invoke it (via an `interactive' spec that contains, for instance, an
 	default:
 	  {
 	    /* How many bytes are left unprocessed in the specs string?
-	       (Note that this excludes the trailing NUL byte.)  */
+	       (Note that this excludes the trailing null byte.)  */
 	    ptrdiff_t bytes_left = string_len - (tem - string);
 	    unsigned letter;
 

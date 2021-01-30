@@ -1,4 +1,4 @@
-;;; url-cache.el --- Uniform Resource Locator retrieval tool
+;;; url-cache.el --- Uniform Resource Locator retrieval tool  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1996-1999, 2004-2021 Free Software Foundation, Inc.
 
@@ -110,23 +110,22 @@ The actual return value is the last modification time of the cache file."
 	    (let ((slash nil))
 	      (setq fname
 		    (mapconcat
-		     (function
-		      (lambda (x)
-			(cond
-			 ((and (= ?/ x) slash)
-			  (setq slash nil)
-			  "%2F")
-			 ((= ?/ x)
-			  (setq slash t)
-			  "/")
-			 (t
-			  (setq slash nil)
-			  (char-to-string x))))) fname ""))))
+                     (lambda (x)
+                       (cond
+                        ((and (= ?/ x) slash)
+                         (setq slash nil)
+                         "%2F")
+                        ((= ?/ x)
+                         (setq slash t)
+                         "/")
+                        (t
+                         (setq slash nil)
+                         (char-to-string x)))) fname ""))))
 
 	(setq fname (and fname
 			 (mapconcat
-			  (function (lambda (x)
-				      (if (= x ?~) "" (char-to-string x))))
+                          (lambda (x)
+                            (if (= x ?~) "" (char-to-string x)))
 			  fname ""))
 	      fname (cond
 		     ((null fname) nil)

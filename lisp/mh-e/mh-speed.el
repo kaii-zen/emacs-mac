@@ -125,11 +125,10 @@ With non-nil FORCE, the update is always carried out."
         ;; Otherwise on to your regular programming
         (t t)))
 
-(defun mh-speed-toggle (&rest ignored)
+(defun mh-speed-toggle (&rest _ignored)
   "Toggle the display of child folders in the speedbar.
 The optional arguments from speedbar are IGNORED."
   (interactive)
-  (declare (ignore args))
   (beginning-of-line)
   (let ((parent (get-text-property (point) 'mh-folder))
         (kids-p (get-text-property (point) 'mh-children-p))
@@ -164,11 +163,10 @@ The optional arguments from speedbar are IGNORED."
               (mh-line-beginning-position) (1+ (line-beginning-position))
               '(mh-expanded t)))))))
 
-(defun mh-speed-view (&rest ignored)
+(defun mh-speed-view (&rest _ignored)
   "Visits the selected folder just as if you had used \\<mh-folder-mode-map>\\[mh-visit-folder].
 The optional arguments from speedbar are IGNORED."
   (interactive)
-  (declare (ignore args))
   (let* ((folder (get-text-property (mh-line-beginning-position) 'mh-folder))
          (range (and (stringp folder)
                      (mh-read-range "Scan" folder t nil nil
@@ -307,7 +305,7 @@ The function will expand out parent folders of FOLDER if needed."
           (mh-speed-toggle))
         (goto-char (gethash prefix mh-speed-folder-map))))
     (while suffix-list
-      ;; We always need atleast one toggle. We need two if the directory list
+      ;; We always need at least one toggle. We need two if the directory list
       ;; is stale since a folder was added.
       (when (equal prefix (get-text-property (mh-line-beginning-position)
                                              'mh-folder))

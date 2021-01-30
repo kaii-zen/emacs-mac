@@ -1,4 +1,4 @@
-;;; facemenu.el --- create a face menu for interactively adding fonts to text
+;;; facemenu.el --- create a face menu for interactively adding fonts to text  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1994-1996, 2001-2021 Free Software Foundation, Inc.
 
@@ -84,10 +84,6 @@
 ;; Please send me any other problems, comments or ideas.
 
 ;;; Code:
-
-(eval-when-compile
-  (require 'help)
-  (require 'button))
 
 ;; Global bindings:
 (define-key global-map [C-down-mouse-2] 'facemenu-menu)
@@ -445,7 +441,7 @@ sets the CHARSET property of the character at point."
   (interactive (list (progn
 		       (barf-if-buffer-read-only)
 		       (read-charset
-                        (format "Use charset (default %s): " (charset-after))
+                        (format-prompt "Use charset" (charset-after))
                         (charset-after)))
 		     (if (and mark-active (not current-prefix-arg))
 			 (region-beginning))
@@ -610,9 +606,14 @@ color.  The function should accept a single argument, the color name."
 
 (defun list-colors-print (list &optional callback)
   (let ((callback-fn
-	 (if callback
-	     `(lambda (button)
-		(funcall ,callback (button-get button 'color-name))))))
+         ;; Expect CALLBACK to be a function, but allow it to be a form that
+         ;; evaluates to a function, for backward-compatibility.  (Bug#45831)
+         (cond ((functionp callback)
+                (lambda (button)
+                  (funcall callback (button-get button 'color-name))))
+               (callback
+                `(lambda (button)
+                  (funcall ,callback (button-get button 'color-name)))))))
     (dolist (color list)
       (if (consp color)
 	  (if (cdr color)
@@ -621,12 +622,11 @@ color.  The function should accept a single argument, the color name."
 						 (downcase b))))))
 	(setq color (list color)))
       (let* ((opoint (point))
-	     (color-values (color-values (car color)))
-	     (light-p (>= (apply 'max color-values)
-			  (* (car (color-values "white")) .5))))
+             (fg (readable-foreground-color (car color))))
 	(insert (car color))
 	(indent-to 22)
-	(put-text-property opoint (point) 'face `(:background ,(car color)))
+	(put-text-property opoint (point) 'face `(:background ,(car color)
+                                                  :foreground ,fg))
 	(put-text-property
 	 (prog1 (point)
 	   (insert " ")
@@ -639,7 +639,7 @@ color.  The function should accept a single argument, the color name."
 	(insert (propertize
 		 (apply 'format "#%02x%02x%02x"
 			(mapcar (lambda (c) (ash c -8))
-				color-values))
+				(color-values (car color))))
 		 'mouse-face 'highlight
 		 'help-echo
 		 (let ((hsv (apply 'color-rgb-to-hsv
@@ -651,7 +651,7 @@ color.  The function should accept a single argument, the color name."
 	   opoint (point)
 	   'follow-link t
 	   'mouse-face (list :background (car color)
-			     :foreground (if light-p "black" "white"))
+			     :foreground fg)
 	   'color-name (car color)
 	   'action callback-fn)))
       (insert "\n"))

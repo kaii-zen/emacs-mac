@@ -3781,7 +3781,7 @@ A link should be enclosed in double brackets and may contain
 descriptive text to be displayed instead of the URL (see @ref{Link Format}), for example:
 
 @example
-[[http://www.gnu.org/software/emacs/][GNU Emacs]]
+[[https://www.gnu.org/software/emacs/][GNU Emacs]]
 @end example
 
 
@@ -4071,7 +4071,7 @@ the link.  Such a function will be called with the tag as the only
 argument.
 
 With the above setting, you could link to a specific bug with
-@samp{[[bugzilla:129]]}, search the web for @samp{OrgMode} with @samp{[[google:OrgMode]]},
+@samp{[[bugzilla:129]]}, search the web for @samp{OrgMode} with @samp{[[duckduckgo:OrgMode]]},
 show the map location of the Free Software Foundation @samp{[[gmap:51
 Franklin Street, Boston]]} or of Carsten office @samp{[[omap:Science Park 904,
 Amsterdam, The Netherlands]]} and find out what the Org author is doing
@@ -4082,8 +4082,8 @@ can define them in the file with
 
 @cindex @samp{LINK}, keyword
 @example
-#+LINK: bugzilla  http://10.1.2.9/bugzilla/show_bug.cgi?id=
-#+LINK: google    http://www.google.com/search?q=%s
+#+LINK: bugzilla   http://10.1.2.9/bugzilla/show_bug.cgi?id=
+#+LINK: duckduckgo https://duckduckgo.com/?q=%s
 @end example
 
 In-buffer completion (see @ref{Completion}) can be used after @samp{[} to
@@ -22612,7 +22612,7 @@ Marco Wahl wrote @samp{ol-eww.el}.
 
 @display
 Copyright @copyright{} 2000, 2001, 2002, 2007, 2008 Free Software Foundation, Inc.
-@uref{http://fsf.org/}
+@uref{https://fsf.org/}
 
 Everyone is permitted to copy and distribute verbatim copies
 of this license document, but changing it is not allowed.
@@ -23037,7 +23037,7 @@ The Free Software Foundation may publish new, revised versions of
 the GNU Free Documentation License from time to time.  Such new
 versions will be similar in spirit to the present version, but may
 differ in detail to address new problems or concerns.  See
-@uref{http://www.gnu.org/copyleft/}.
+@uref{https://www.gnu.org/copyleft/}.
 
 Each version of the License is given a distinguishing version
 number.  If the Document specifies that a particular numbered

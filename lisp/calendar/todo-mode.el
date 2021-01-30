@@ -1937,11 +1937,13 @@ their associated keys and their effects."
 	(find-file-noselect file 'nowarn)
 	(set-window-buffer (selected-window)
 			   (set-buffer (find-buffer-visiting file)))
-	;; If this command was invoked outside of a Todo mode buffer,
-	;; the call to todo-current-category above returned nil.  If
-	;; we just entered Todo mode now, then cat was set to the
-	;; file's first category, but if todo-mode was already
-	;; enabled, cat did not get set, so we have to do that.
+        ;; If FILE is not in Todo mode, set it now, which also sets
+	;; CAT to the file's first category.
+	(unless (derived-mode-p 'todo-mode) (todo-mode))
+        ;; But if FILE was already in todo-mode and the item insertion
+	;; command was invoked outside of a Todo mode buffer, the
+	;; above calls to todo-current-category returned nil, so we
+	;; have to explicitly set CAT to the current category.
 	(unless cat
 	  (setq cat (todo-current-category)))
 	(setq todo-current-todo-file file)
@@ -2169,7 +2171,9 @@ the item at point."
 		  (if comment-delete
 		      (when (todo-y-or-n-p "Delete comment? ")
 			(delete-region (match-beginning 0) (match-end 0)))
-		    (replace-match (read-string prompt (cons (match-string 1) 1))
+		    (replace-match (save-match-data
+                                     (read-string prompt
+                                                  (cons (match-string 1) 1)))
 				   nil nil nil 1))
 		(if comment-delete
 		    (user-error "There is no comment to delete")
@@ -2348,25 +2352,35 @@ made in the number or names of categories."
 			    ((or (string= omonth "*") (= mm 13))
 			     (user-error "Cannot increment *"))
 			    (t
-			     (let ((mminc (+ mm inc (if (< inc 0) 12 0))))
-			       ;; Increment or decrement month by INC
-			       ;; modulo 12.
-			       (setq mm (% mminc 12))
-			       ;; If result is 0, make month December.
-			       (setq mm (if (= mm 0) 12 (abs mm)))
+			     (let* ((mmo mm)
+                                    ;; Change by 12 or more months?
+                                    (bigincp (>= (abs inc) 12))
+                                    ;; Month number is in range 1..12.
+                                    (mminc (+ mm (% inc 12)))
+			            (mm (% (+ mminc 12) 12))
+			            ;; 12n mod 12 = 0, so 0 is December.
+			            (mm (if (= mm 0) 12 mm))
+                                    ;; Does change in month cross year?
+                                    (mmcmp (cond ((< inc 0) (> mm mmo))
+                                                 ((> inc 0) (< mm mmo))))
+                                    (yyadjust (if bigincp
+                                                  (+ (abs (/ inc 12))
+                                                     (if mmcmp 1 0))
+                                                1)))
 			       ;; Adjust year if necessary.
-			       (setq year (or (and (cond ((> mminc 12)
-							  (+ yy (/ mminc 12)))
-							 ((< mminc 1)
-							  (- yy (/ mminc 12) 1))
-							 (t yy))
-						   (number-to-string yy))
-					      oyear)))
-			     ;; Return the changed numerical month as
-			     ;; a string or the corresponding month name.
-			     (if omonth
-				 (number-to-string mm)
-			       (aref tma-array (1- mm))))))
+                               (setq yy (cond ((and (< inc 0)
+                                                    (or mmcmp bigincp))
+                                               (- yy yyadjust))
+                                              ((and (> inc 0)
+                                                    (or mmcmp bigincp))
+                                               (+ yy yyadjust))
+                                              (t yy)))
+                               (setq year (number-to-string yy))
+			       ;; Return the changed numerical month as
+			       ;; a string or the corresponding month name.
+			       (if omonth
+				   (number-to-string mm)
+			         (aref tma-array (1- mm)))))))
                 ;; Since the number corresponding to the arbitrary
                 ;; month name "*" is out of the range of
                 ;; calendar-last-day-of-month, set it to 1
@@ -2731,9 +2745,10 @@ section in the category moved to."
 		(setq ov (make-overlay (save-excursion (todo-item-start))
 				       (save-excursion (todo-item-end))))
 		(overlay-put ov 'face 'todo-search))
-	      (let* ((pl (if (and marked (> (cdr marked) 1)) "s" ""))
-		     (cat+file (todo-read-category (concat "Move item" pl
-							    " to category: ")
+	      (let* ((num (if (not marked) 1 (cdr marked)))
+		     (cat+file (todo-read-category
+                                (ngettext "Move item to category: "
+                                          "Move items to category: " num)
 						    nil file)))
 		(while (and (equal (car cat+file) cat1)
 			    (equal (cdr cat+file) file1))
@@ -2960,7 +2975,7 @@ comments without asking."
   (interactive)
   (let* ((cat (todo-current-category))
 	 (marked (assoc cat todo-categories-with-marks))
-	 (pl (if (and marked (> (cdr marked) 1)) "s" "")))
+	 (num (if (not marked) 1 (cdr marked))))
     (when (or marked (todo-done-item-p))
       (let ((buffer-read-only)
 	    (opoint (point))
@@ -2968,6 +2983,9 @@ comments without asking."
 	    (first 'first)
 	    (item-count 0)
 	    (diary-count 0)
+            (omit-prompt (ngettext "Omit comment from restored item? "
+                                   "Omit comments from restored items? "
+                           num))
 	    start end item ov npoint undone)
 	(and marked (goto-char (point-min)))
 	(catch 'done
@@ -2999,10 +3017,7 @@ comments without asking."
 		      (if (eq first 'first)
 			  (setq first
 				(if (eq todo-undo-item-omit-comment 'ask)
-				    (when (todo-y-or-n-p
-					   (concat "Omit comment" pl
-						   " from restored item"
-						   pl "? "))
+				    (when (todo-y-or-n-p omit-prompt)
 				      'omit)
 				  (when todo-undo-item-omit-comment 'omit)))
 			t)
@@ -4062,7 +4077,9 @@ regexp items."
 			((equal (file-name-extension f) "todt") "top")
 			((equal (file-name-extension f) "tody") "diary"))))
 	(push (cons (concat sf-name " (" type ")") f) falist)))
-    (setq file (completing-read "Choose a filtered items file: " falist nil t nil
+    (setq file (completing-read (format-prompt "Choose a filtered items file"
+                                               (caar falist))
+                                falist nil t nil
                                 'todo--fifiles-history (caar falist)))
     (setq file (cdr (assoc-string file falist)))
     (find-file file)
@@ -4710,9 +4727,8 @@ name in `todo-directory'.  See also the documentation string of
 	      (todo-convert-legacy-date-time)))
 	    (forward-line))
 	  (setq file (concat todo-directory
-			     (read-string
-			      (format "Save file as (default \"%s\"): " default)
-			      nil nil default)
+			     (read-string (format-prompt "Save file as" default)
+			                  nil nil default)
 			     ".todo"))
 	  (unless (file-exists-p todo-directory)
 	    (make-directory todo-directory))
@@ -5767,11 +5783,13 @@ have been removed."
 	      (delete f todo-category-completions-files))
 	(push f deleted)))
     (when deleted
-      (let ((pl (> (length deleted) 1))
+      (let ((ndeleted (length deleted))
 	    (names (mapconcat (lambda (f) (concat "\"" f "\"")) deleted ", ")))
-	(message (concat "File" (if pl "s" "") " %s ha" (if pl "ve" "s")
-			 " been deleted and removed from\n"
-			 "the list of category completion files")
+	(message (concat
+                  (ngettext "File %s has been deleted and removed from\n"
+                            "Files %s have been deleted and removed from\n"
+                            ndeleted)
+		  "the list of category completion files")
 		 names))
       (put 'todo-category-completions-files 'custom-type
            `(set ,@(todo--files-type-list)))
@@ -5923,8 +5941,15 @@ categories from `todo-category-completions-files'."
 		       (todo-absolute-file-name
 			(let ((files (mapcar #'todo-short-file-name catfil)))
 			  (completing-read (format str cat) files)))))))
-      ;; Default to the current file.
-      (unless file0 (setq file0 todo-current-todo-file))
+      ;; When called without arg FILE, use fallback todo file.
+      (unless file0 (setq file0 (or todo-current-todo-file
+                                    ;; If we're outside of todo-mode
+                                    ;; but there is a current todo
+                                    ;; file, use it.
+                                    todo-global-current-todo-file
+                                    ;; Else, use the default todo file.
+                                    (todo-absolute-file-name
+				     todo-default-todo-file))))
       ;; First validate only a name passed interactively from
       ;; todo-add-category, which must be of a nonexistent category.
       (unless (and (assoc cat categories) (not add))
@@ -6087,11 +6112,12 @@ Valid time strings are those matching `diary-time-regexp'.
 Typing `<return>' at the prompt returns the current time, if the
 user option `todo-always-add-time-string' is non-nil, otherwise
 the empty string (i.e., no time string)."
-  (let (valid answer)
+  (let ((default (when todo-always-add-time-string
+		   (format-time-string "%H:%M")))
+        valid answer)
     (while (not valid)
-      (setq answer (read-string "Enter a clock time: " nil nil
-				(when todo-always-add-time-string
-				  (format-time-string "%H:%M"))))
+      (setq answer (read-string (format-prompt "Enter a clock time" default)
+                                nil nil default))
       (when (or (string= "" answer)
 		(string-match diary-time-regexp answer))
 	(setq valid t)))
@@ -6419,8 +6445,7 @@ Filtered Items mode following todo (not done) items."
     ("i"	     todo-insert-item)
     ("k"	     todo-delete-item)
     ("m"	     todo-move-item)
-    ("u"	     todo-item-undone)
-    ([remap newline] newline-and-indent))
+    ("u"	     todo-item-undone))
   "List of key bindings for Todo mode only.")
 
 (defvar todo-key-bindings-t+a+f
@@ -6486,7 +6511,6 @@ Filtered Items mode following todo (not done) items."
 (defvar todo-edit-mode-map
   (let ((map (make-sparse-keymap)))
     (define-key map "\C-x\C-q" 'todo-edit-quit)
-    (define-key map [remap newline] 'newline-and-indent)
     map)
   "Todo Edit mode keymap.")
 
@@ -6645,7 +6669,6 @@ Added to `window-configuration-change-hook' in Todo mode."
   (setq-local font-lock-defaults '(todo-font-lock-keywords t))
   (setq-local revert-buffer-function #'todo-revert-buffer)
   (setq-local tab-width todo-indent-to-here)
-  (setq-local indent-line-function #'todo-indent)
   (when todo-wrap-lines
     (visual-line-mode)
     (setq wrap-prefix (make-string todo-indent-to-here 32))))
@@ -6720,6 +6743,7 @@ Added to `window-configuration-change-hook' in Todo mode."
 
 \\{todo-edit-mode-map}"
   (todo-modes-set-1)
+  (setq-local indent-line-function #'todo-indent)
   (if (> (buffer-size) (- (point-max) (point-min)))
       ;; Editing one item in an indirect buffer, so buffer-file-name is nil.
       (setq-local todo-current-todo-file todo-global-current-todo-file)

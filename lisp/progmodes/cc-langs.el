@@ -337,7 +337,8 @@ the evaluated constant value at compile time."
 This includes setting \\=' and \" as string delimiters, and setting up
 the comment syntax to handle both line style \"//\" and block style
 \"/*\" \"*/\" comments."
-
+  ;; Never native compile to allow cc-mode.el:467 hack.
+  (declare (speed -1))
   (modify-syntax-entry ?_  "_"     table)
   (modify-syntax-entry ?\\ "\\"    table)
   (modify-syntax-entry ?+  "."     table)
@@ -457,13 +458,11 @@ so that all identifiers are recognized as words.")
 	c-before-change-check-raw-strings
 	c-before-change-check-<>-operators
 	c-depropertize-CPP
-	c-invalidate-macro-cache
 	c-truncate-bs-cache
 	c-before-change-check-unbalanced-strings
 	c-parse-quotes-before-change)
   (c objc) '(c-extend-region-for-CPP
 	     c-depropertize-CPP
-	     c-invalidate-macro-cache
 	     c-truncate-bs-cache
 	     c-before-change-check-unbalanced-strings
 	     c-parse-quotes-before-change)
@@ -549,7 +548,7 @@ parameters (point-min), (point-max) and <buffer size>.")
 
 (c-lang-defconst c-before-context-fontification-functions
   t 'c-context-expand-fl-region
-  awk nil)
+  awk 'c-awk-context-expand-fl-region)
   ;; For documentation see the following c-lang-defvar of the same name.
   ;; The value here may be a list of functions or a single function.
 (c-lang-defvar c-before-context-fontification-functions
@@ -581,12 +580,14 @@ don't have EOL terminated statements. "
 (c-lang-defvar c-at-vsemi-p-fn (c-lang-const c-at-vsemi-p-fn))
 
 (c-lang-defconst c-vsemi-status-unknown-p-fn
-  "Contains a function \"are we unsure whether there is a virtual semicolon on this line?\".
-The (admittedly kludgy) purpose of such a function is to prevent an infinite
-recursion in c-beginning-of-statement-1 when point starts at a `while' token.
-The function MUST NOT UNDER ANY CIRCUMSTANCES call c-beginning-of-statement-1,
-even indirectly.  This variable contains nil for languages which don't have
-EOL terminated statements."
+  "Contains a predicate regarding the presence of virtual semicolons.
+More precisely, the function answers the question, \"are we unsure whether a
+virtual semicolon exists on this line?\".  The (admittedly kludgy) purpose of
+such a function is to prevent an infinite recursion in
+`c-beginning-of-statement-1' when point starts at a `while' token.  The function
+MUST NOT UNDER ANY CIRCUMSTANCES call `c-beginning-of-statement-1', even
+indirectly.  This variable contains nil for languages which don't have EOL
+terminated statements."
   t nil
   (c c++ objc) 'c-macro-vsemi-status-unknown-p
   awk 'c-awk-vsemi-status-unknown-p)
@@ -699,6 +700,7 @@ It's assumed to not contain any submatchers."
   ;; The same thing regarding Unicode identifiers applies here as to
   ;; `c-symbol-key'.
   t (concat "[" (c-lang-const c-nonsymbol-chars) "]"))
+(c-lang-defvar c-nonsymbol-key (c-lang-const c-nonsymbol-key))
 
 (c-lang-defconst c-identifier-ops
   "The operators that make up fully qualified identifiers.  nil in
@@ -1174,7 +1176,7 @@ since CC Mode treats every identifier as an expression."
 
       ;; Exception.
       ,@(when (c-major-mode-is 'c++-mode)
-	  '((prefix "throw")))
+	  '((prefix "throw" "co_await" "co_yield")))
 
       ;; Sequence.
       (left-assoc ","))
@@ -1769,7 +1771,7 @@ ender."
 `comment-start-skip' is initialized from this."
   ;; Default: Allow the last char of the comment starter(s) to be
   ;; repeated, then allow any amount of horizontal whitespace.
-  t (concat "\\("
+  t (concat "\\(?:"
 	    (c-concat-separated
 	     (mapcar (lambda (cs)
 		       (when cs
@@ -2040,6 +2042,7 @@ the appropriate place for that."
 (c-lang-defconst c-return-kwds
   "Keywords which return a value to the calling function."
   t '("return")
+  c++ '("return" "co_return")
   idl nil)
 
 (c-lang-defconst c-return-key
@@ -2120,7 +2123,9 @@ fontified with the keyword face and not the type face."
   t    nil
   c    '("const" "restrict" "volatile")
   c++  '("const" "noexcept" "volatile")
-  objc '("const" "volatile"))
+  objc '("const" "volatile")
+  t    (append (c-lang-const c-no-type-kwds)
+	       (c-lang-const c-type-modifier-prefix-kwds)))
 
 (c-lang-defconst c-opt-type-modifier-prefix-key
   ;; Adorned regexp matching `c-type-modifier-prefix-kwds', or nil in
@@ -2337,6 +2342,26 @@ will be handled."
   t  (c-make-keywords-re t (c-lang-const c-typedef-decl-kwds)))
 (c-lang-defvar c-typedef-decl-key (c-lang-const c-typedef-decl-key))
 
+(c-lang-defconst c-using-kwds
+  "Keywords which behave like `using' in C++"
+  t nil
+  c++ '("using"))
+
+(c-lang-defconst c-using-key
+  ;; Regexp matching C++'s `using'.
+  t (c-make-keywords-re t (c-lang-const c-using-kwds)))
+(c-lang-defvar c-using-key (c-lang-const c-using-key))
+
+(c-lang-defconst c-no-type-kwds
+  "Keywords which remove the need to specify a type in declarations"
+  t nil
+  c++ '("auto"))
+
+(c-lang-defconst c-no-type-key
+  ;; Regexp matching an entry from `c-no-type-kwds'
+  t (c-make-keywords-re t (c-lang-const c-no-type-kwds)))
+(c-lang-defvar c-no-type-key (c-lang-const c-no-type-key))
+
 (c-lang-defconst c-typeless-decl-kwds
   "Keywords introducing declarations where the (first) identifier
 \(declarator) follows directly after the keyword, without any type.
@@ -2350,7 +2375,6 @@ will be handled."
   ;; {...}").
   t    (append (c-lang-const c-class-decl-kwds)
 	       (c-lang-const c-brace-list-decl-kwds))
-  c++  (append (c-lang-const c-typeless-decl-kwds) '("auto")) ; C++11.
   ;; Note: "manages" for CORBA CIDL clashes with its presence on
   ;; `c-type-list-kwds' for IDL.
   idl  (append (c-lang-const c-typeless-decl-kwds)
@@ -2385,9 +2409,11 @@ If any of these also are on `c-type-list-kwds', `c-ref-list-kwds',
 `c-<>-type-kwds', or `c-<>-arglist-kwds' then the associated clauses
 will be handled."
   t    nil
-  (c c++) '("auto" "extern" "inline" "register" "static")
+  (c c++) '("extern" "inline" "register" "static")
+  c    (append '("auto") (c-lang-const c-modifier-kwds))
   c++  (append '("constexpr" "explicit" "friend" "mutable" "template"
-		 "thread_local" "using" "virtual")
+		 "thread_local" "virtual")
+	       ;; "using" is now handled specially (2020-09-14).
 	       (c-lang-const c-modifier-kwds))
   objc '("auto" "bycopy" "byref" "extern" "in" "inout" "oneway" "out" "static")
   ;; FIXME: Some of those below ought to be on `c-other-decl-kwds' instead.
@@ -2415,7 +2441,8 @@ If any of these also are on `c-type-list-kwds', `c-ref-list-kwds',
 `c-<>-type-kwds', or `c-<>-arglist-kwds' then the associated clauses
 will be handled."
   t       nil
-  objc    '("@class" "@end" "@defs")
+  objc    '("@class" "@defs" "@end" "@property" "@dynamic" "@synthesize"
+	    "@compatibility_alias")
   java    '("import" "package")
   pike    '("import" "inherit"))
 
@@ -2538,7 +2565,8 @@ one of `c-type-list-kwds', `c-ref-list-kwds',
   "Access protection label keywords in classes."
   t    nil
   c++  '("private" "protected" "public")
-  objc '("@private" "@protected" "@public"))
+  objc '("@private" "@protected" "@package" "@public"
+	 "@required" "@optional"))
 
 (c-lang-defconst c-protection-key
   ;; A regexp match an element of `c-protection-kwds' cleanly.
@@ -2753,7 +2781,7 @@ identifiers that follows the type in a normal declaration."
   "Statement keywords followed directly by a substatement."
   t    '("do" "else")
   c++  '("do" "else" "try")
-  objc '("do" "else" "@finally" "@try")
+  objc '("do" "else" "@finally" "@try" "@autoreleasepool")
   java '("do" "else" "finally" "try")
   idl  nil)
 
@@ -2783,7 +2811,7 @@ Keywords here should also be in `c-block-stmt-1-kwds'."
   java '("for" "if" "switch" "while" "catch" "synchronized")
   idl  nil
   pike '("for" "if" "switch" "while" "foreach")
-  awk  '("for" "if" "while"))
+  awk  '("for" "if" "switch" "while"))
 
 (c-lang-defconst c-block-stmt-2-key
   ;; Regexp matching the start of any statement followed by a paren sexp
@@ -2822,6 +2850,7 @@ Keywords here should also be in `c-block-stmt-1-kwds'."
 (c-lang-defconst c-simple-stmt-kwds
   "Statement keywords followed by an expression or nothing."
   t    '("break" "continue" "goto" "return")
+  c++    '("break" "continue" "goto" "return" "co_return")
   objc '("break" "continue" "goto" "return" "@throw")
   ;; Note: `goto' is not valid in Java, but the keyword is still reserved.
   java '("break" "continue" "goto" "return" "throw")
@@ -2862,8 +2891,7 @@ nevertheless contains a list separated with `;' and not `,'."
 (c-lang-defconst c-case-kwds
   "The keyword(s) which introduce a \"case\" like construct.
 This construct is \"<keyword> <expression> :\"."
-  t '("case")
-  awk nil)
+  t '("case"))
 
 (c-lang-defconst c-case-kwds-regexp
   ;; Adorned regexp matching any "case"-like keyword.
@@ -2895,7 +2923,8 @@ This construct is \"<keyword> <expression> :\"."
   c++     (append
            '("nullptr")
            (c-lang-const c-constant-kwds c))
-  objc    '("nil" "Nil" "YES" "NO" "NS_DURING" "NS_HANDLER" "NS_ENDHANDLER")
+  objc    '("nil" "Nil" "YES" "NO" "IBAction" "IBOutlet"
+	    "NS_DURING" "NS_HANDLER" "NS_ENDHANDLER")
   idl     '("TRUE" "FALSE")
   java    '("true" "false" "null") ; technically "literals", not keywords
   pike    '("UNDEFINED")) ;; Not a keyword, but practically works as one.
@@ -3030,7 +3059,14 @@ Note that Java specific rules are currently applied to tell this from
 	 ;; can start a declaration.)
 	 "entity" "process" "service" "session" "storage"))
 
-
+(c-lang-defconst c-std-abbrev-keywords
+  "List of keywords which may need to cause electric indentation."
+  t '("else" "while")
+  c++ (append (c-lang-const c-std-abbrev-keywords) '("catch"))
+  java (append (c-lang-const c-std-abbrev-keywords) '("catch" "finally"))
+  idl nil)
+(c-lang-defvar c-std-abbrev-keywords (c-lang-const c-std-abbrev-keywords))
+
 ;;; Constants built from keywords.
 
 ;; Note: No `*-kwds' language constants may be defined below this point.
@@ -3405,8 +3441,14 @@ regexp should match \"(\" if parentheses are valid in declarators.
 The end of the first submatch is taken as the end of the operator.
 Identifier syntax is in effect when this is matched (see
 `c-identifier-syntax-table')."
-  t (if (c-lang-const c-type-modifier-kwds)
-	(concat (regexp-opt (c-lang-const c-type-modifier-kwds) t) "\\>")
+  t (if (or (c-lang-const c-type-modifier-kwds) (c-lang-const c-modifier-kwds))
+        (concat
+	 (regexp-opt (c--delete-duplicates
+		      (append (c-lang-const c-type-modifier-kwds)
+			      (c-lang-const c-modifier-kwds))
+		      :test 'string-equal)
+		     t)
+	 "\\>")
       ;; Default to a regexp that never matches.
       regexp-unmatchable)
   ;; Check that there's no "=" afterwards to avoid matching tokens

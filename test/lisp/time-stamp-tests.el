@@ -38,9 +38,7 @@
      (cl-letf (((symbol-function 'time-stamp-conv-warn)
                 (lambda (old-format _new)
                   (ert-fail
-                   (format "Unexpected format warning for '%s'" old-format))))
-               ((symbol-function 'system-name)
-                (lambda () "test-system-name.example.org")))
+                   (format "Unexpected format warning for '%s'" old-format)))))
        ;; Not all reference times are used in all tests;
        ;; suppress the byte compiler's "unused" warning.
        (list ref-time1 ref-time2 ref-time3)
@@ -54,6 +52,13 @@
          ((symbol-function 'time-stamp-string)
           (lambda (ts-format)
             (apply orig-time-stamp-string-fn ts-format ,reference-time nil))))
+     ,@body))
+
+(defmacro with-time-stamp-system-name (name &rest body)
+  "Force (system-name) to return NAME while evaluating BODY."
+  (declare (indent defun))
+  `(cl-letf (((symbol-function 'system-name)
+              (lambda () ,name)))
      ,@body))
 
 (defmacro time-stamp-should-warn (form)
@@ -170,6 +175,20 @@
             ;; triggering the tests above.
             (time-stamp)))))))
 
+(ert-deftest time-stamp-custom-format-tabs-expand ()
+  "Test that Tab characters expand in the format but not elsewhere."
+  (with-time-stamp-test-env
+    (let ((time-stamp-start "Updated in: <\t")
+          ;; Tabs in the format should expand
+          (time-stamp-format "\t%Y\t")
+          (time-stamp-end "\t>"))
+      (with-time-stamp-test-time ref-time1
+        (with-temp-buffer
+          (insert "Updated in: <\t\t>")
+          (time-stamp)
+          (should (equal (buffer-string)
+                         "Updated in: <\t        2006    \t>")))))))
+
 (ert-deftest time-stamp-custom-inserts-lines ()
   "Test that time-stamp inserts lines or not, as directed."
   (with-time-stamp-test-env
@@ -194,19 +213,46 @@
           (time-stamp)
           (should (equal (buffer-string) buffer-expected-2line)))))))
 
+(ert-deftest time-stamp-custom-end ()
+  "Test that time-stamp finds the end pattern on the correct line."
+  (with-time-stamp-test-env
+    (let ((time-stamp-start "Updated on: <")
+          (time-stamp-format "%Y-%m-%d")
+          (time-stamp-end ">")          ;changed later in the test
+          (buffer-original-contents "Updated on: <\n>\n")
+          (buffer-expected-time-stamped "Updated on: <2006-01-02\n>\n"))
+      (with-time-stamp-test-time ref-time1
+        (with-temp-buffer
+          (insert buffer-original-contents)
+          ;; time-stamp-end is not on same line, should not be seen
+          (time-stamp)
+          (should (equal (buffer-string) buffer-original-contents))
+
+          ;; add a newline to time-stamp-end, so it starts on same line
+          (setq time-stamp-end "\n>")
+          (time-stamp)
+          (should (equal (buffer-string) buffer-expected-time-stamped)))))))
+
 (ert-deftest time-stamp-custom-count ()
   "Test that time-stamp updates no more than time-stamp-count templates."
   (with-time-stamp-test-env
     (let ((time-stamp-start "TS: <")
           (time-stamp-format "%Y-%m-%d")
-          (time-stamp-count 1)          ;changed later in the test
+          (time-stamp-count 0)          ;changed later in the test
           (buffer-expected-once "TS: <2006-01-02>\nTS: <>")
           (buffer-expected-twice "TS: <2006-01-02>\nTS: <2006-01-02>"))
       (with-time-stamp-test-time ref-time1
         (with-temp-buffer
           (insert "TS: <>\nTS: <>")
           (time-stamp)
+          ;; even with count = 0, expect one time stamp
+          (should (equal (buffer-string) buffer-expected-once)))
+        (with-temp-buffer
+          (setq time-stamp-count 1)
+          (insert "TS: <>\nTS: <>")
+          (time-stamp)
           (should (equal (buffer-string) buffer-expected-once))
+
           (setq time-stamp-count 2)
           (time-stamp)
           (should (equal (buffer-string) buffer-expected-twice)))))))
@@ -216,40 +262,48 @@
 (ert-deftest time-stamp-format-day-of-week ()
   "Test time-stamp formats for named day of week."
   (with-time-stamp-test-env
-    ;; implemented and documented since 1997
-    (should (equal (time-stamp-string "%3a" ref-time1) "Mon"))
-    (should (equal (time-stamp-string "%#A" ref-time1) "MONDAY"))
-    ;; documented 1997-2019
-    (should (equal (time-stamp-string "%3A" ref-time1) "MON"))
-    (should (equal (time-stamp-string "%:a" ref-time1) "Monday"))
-    ;; implemented since 2001, documented since 2019
-    (should (equal (time-stamp-string "%#a" ref-time1) "MON"))
-    (should (equal (time-stamp-string "%:A" ref-time1) "Monday"))
-    ;; allowed but undocumented since 2019 (warned 1997-2019)
-    (should (equal (time-stamp-string "%^A" ref-time1) "MONDAY"))
-    ;; warned 1997-2019, changed in 2019
-    (should (equal (time-stamp-string "%a" ref-time1) "Mon"))
-    (should (equal (time-stamp-string "%^a" ref-time1) "MON"))
-    (should (equal (time-stamp-string "%A" ref-time1) "Monday"))))
+   (let ((Mon (format-time-string "%a" ref-time1 t))
+         (MON (format-time-string "%^a" ref-time1 t))
+         (Monday (format-time-string "%A" ref-time1 t))
+         (MONDAY (format-time-string "%^A" ref-time1 t)))
+     ;; implemented and documented since 1997
+     (should (equal (time-stamp-string "%3a" ref-time1) Mon))
+     (should (equal (time-stamp-string "%#A" ref-time1) MONDAY))
+     ;; documented 1997-2019
+     (should (equal (time-stamp-string "%3A" ref-time1) MON))
+     (should (equal (time-stamp-string "%:a" ref-time1) Monday))
+     ;; implemented since 2001, documented since 2019
+     (should (equal (time-stamp-string "%#a" ref-time1) MON))
+     (should (equal (time-stamp-string "%:A" ref-time1) Monday))
+     ;; allowed but undocumented since 2019 (warned 1997-2019)
+     (should (equal (time-stamp-string "%^A" ref-time1) MONDAY))
+     ;; warned 1997-2019, changed in 2019
+     (should (equal (time-stamp-string "%a" ref-time1) Mon))
+     (should (equal (time-stamp-string "%^a" ref-time1) MON))
+     (should (equal (time-stamp-string "%A" ref-time1) Monday)))))
 
 (ert-deftest time-stamp-format-month-name ()
   "Test time-stamp formats for month name."
   (with-time-stamp-test-env
-    ;; implemented and documented since 1997
-    (should (equal (time-stamp-string "%3b" ref-time1) "Jan"))
-    (should (equal (time-stamp-string "%#B" ref-time1) "JANUARY"))
-    ;; documented 1997-2019
-    (should (equal (time-stamp-string "%3B" ref-time1) "JAN"))
-    (should (equal (time-stamp-string "%:b" ref-time1) "January"))
-    ;; implemented since 2001, documented since 2019
-    (should (equal (time-stamp-string "%#b" ref-time1) "JAN"))
-    (should (equal (time-stamp-string "%:B" ref-time1) "January"))
-    ;; allowed but undocumented since 2019 (warned 1997-2019)
-    (should (equal (time-stamp-string "%^B" ref-time1) "JANUARY"))
-    ;; warned 1997-2019, changed in 2019
-    (should (equal (time-stamp-string "%b" ref-time1) "Jan"))
-    (should (equal (time-stamp-string "%^b" ref-time1) "JAN"))
-    (should (equal (time-stamp-string "%B" ref-time1) "January"))))
+   (let ((Jan (format-time-string "%b" ref-time1 t))
+         (JAN (format-time-string "%^b" ref-time1 t))
+         (January (format-time-string "%B" ref-time1 t))
+         (JANUARY (format-time-string "%^B" ref-time1 t)))
+     ;; implemented and documented since 1997
+     (should (equal (time-stamp-string "%3b" ref-time1) Jan))
+     (should (equal (time-stamp-string "%#B" ref-time1) JANUARY))
+     ;; documented 1997-2019
+     (should (equal (time-stamp-string "%3B" ref-time1) JAN))
+     (should (equal (time-stamp-string "%:b" ref-time1) January))
+     ;; implemented since 2001, documented since 2019
+     (should (equal (time-stamp-string "%#b" ref-time1) JAN))
+     (should (equal (time-stamp-string "%:B" ref-time1) January))
+     ;; allowed but undocumented since 2019 (warned 1997-2019)
+     (should (equal (time-stamp-string "%^B" ref-time1) JANUARY))
+     ;; warned 1997-2019, changed in 2019
+     (should (equal (time-stamp-string "%b" ref-time1) Jan))
+     (should (equal (time-stamp-string "%^b" ref-time1) JAN))
+     (should (equal (time-stamp-string "%B" ref-time1) January)))))
 
 (ert-deftest time-stamp-format-day-of-month ()
   "Test time-stamp formats for day of month."
@@ -437,14 +491,18 @@
 (ert-deftest time-stamp-format-am-pm ()
   "Test time-stamp formats for AM and PM strings."
   (with-time-stamp-test-env
-    ;; implemented and documented since 1997
-    (should (equal (time-stamp-string "%#p" ref-time1) "pm"))
-    (should (equal (time-stamp-string "%#p" ref-time3) "am"))
-    (should (equal (time-stamp-string "%P" ref-time1) "PM"))
-    (should (equal (time-stamp-string "%P" ref-time3) "AM"))
-    ;; warned 1997-2019, changed in 2019
-    (should (equal (time-stamp-string "%p" ref-time1) "PM"))
-    (should (equal (time-stamp-string "%p" ref-time3) "AM"))))
+    (let ((pm (format-time-string "%#p" ref-time1 t))
+          (am (format-time-string "%#p" ref-time3 t))
+          (PM (format-time-string "%p" ref-time1 t))
+          (AM (format-time-string "%p" ref-time3 t)))
+      ;; implemented and documented since 1997
+      (should (equal (time-stamp-string "%#p" ref-time1) pm))
+      (should (equal (time-stamp-string "%#p" ref-time3) am))
+      (should (equal (time-stamp-string "%P" ref-time1) PM))
+      (should (equal (time-stamp-string "%P" ref-time3) AM))
+      ;; warned 1997-2019, changed in 2019
+      (should (equal (time-stamp-string "%p" ref-time1) PM))
+      (should (equal (time-stamp-string "%p" ref-time3) AM)))))
 
 (ert-deftest time-stamp-format-day-number-in-week ()
   "Test time-stamp formats for day number in week."
@@ -488,34 +546,48 @@
 (ert-deftest time-stamp-format-non-date-conversions ()
   "Test time-stamp formats for non-date items."
   (with-time-stamp-test-env
-    ;; implemented and documented since 1995
-    (should (equal (time-stamp-string "%%" ref-time1) "%")) ;% last char
-    (should (equal (time-stamp-string "%%P" ref-time1) "%P")) ;% not last char
-    (should (equal (time-stamp-string "%f" ref-time1) "time-stamped-file"))
-    (should
-     (equal (time-stamp-string "%F" ref-time1) "/emacs/test/time-stamped-file"))
-    (should (equal (time-stamp-string "%h" ref-time1) "test-mail-host-name"))
-    ;; documented 1995-2019
-    (should (equal
-             (time-stamp-string "%s" ref-time1) "test-system-name.example.org"))
-    (should (equal (time-stamp-string "%U" ref-time1) "100%d Tester"))
-    (should (equal (time-stamp-string "%u" ref-time1) "test-logname"))
-    ;; implemented since 2001, documented since 2019
-    (should (equal (time-stamp-string "%L" ref-time1) "100%d Tester"))
-    (should (equal (time-stamp-string "%l" ref-time1) "test-logname"))
-    ;; implemented since 2007, documented since 2019
-    (should (equal
-             (time-stamp-string "%Q" ref-time1) "test-system-name.example.org"))
-    (should (equal
-             (time-stamp-string "%q" ref-time1) "test-system-name"))))
+    (with-time-stamp-system-name "test-system-name.example.org"
+      ;; implemented and documented since 1995
+      (should (equal (time-stamp-string "%%" ref-time1) "%")) ;% last char
+      (should (equal (time-stamp-string "%%P" ref-time1) "%P")) ;% not last char
+      (should (equal (time-stamp-string "%f" ref-time1) "time-stamped-file"))
+      (should (equal (time-stamp-string "%F" ref-time1)
+                     "/emacs/test/time-stamped-file"))
+      (with-temp-buffer
+        (should (equal (time-stamp-string "%f" ref-time1) "(no file)"))
+        (should (equal (time-stamp-string "%F" ref-time1) "(no file)")))
+      (should (equal (time-stamp-string "%h" ref-time1) "test-mail-host-name"))
+      (let ((mail-host-address nil))
+        (should (equal (time-stamp-string "%h" ref-time1)
+                       "test-system-name.example.org")))
+      ;; documented 1995-2019
+      (should (equal (time-stamp-string "%s" ref-time1)
+                     "test-system-name.example.org"))
+      (should (equal (time-stamp-string "%U" ref-time1) "100%d Tester"))
+      (should (equal (time-stamp-string "%u" ref-time1) "test-logname"))
+      ;; implemented since 2001, documented since 2019
+      (should (equal (time-stamp-string "%L" ref-time1) "100%d Tester"))
+      (should (equal (time-stamp-string "%l" ref-time1) "test-logname"))
+      ;; implemented since 2007, documented since 2019
+      (should (equal (time-stamp-string "%Q" ref-time1)
+                     "test-system-name.example.org"))
+      (should (equal (time-stamp-string "%q" ref-time1) "test-system-name")))
+    (with-time-stamp-system-name "sysname-no-dots"
+      (should (equal (time-stamp-string "%Q" ref-time1) "sysname-no-dots"))
+      (should (equal (time-stamp-string "%q" ref-time1) "sysname-no-dots")))))
 
 (ert-deftest time-stamp-format-ignored-modifiers ()
   "Test additional args allowed (but ignored) to allow for future expansion."
   (with-time-stamp-test-env
-    ;; allowed modifiers
-    (should (equal (time-stamp-string "%.,@-+_ ^(stuff)P" ref-time3) "AM"))
-    ;; not all punctuation is allowed
-    (should-not (equal (time-stamp-string "%&P" ref-time3) "AM"))))
+   (let ((May (format-time-string "%B" ref-time3 t)))
+     ;; allowed modifiers
+     (should (equal (time-stamp-string "%.,@+ (stuff)B" ref-time3) May))
+     ;; parens nest
+     (should (equal (time-stamp-string "%(st(u)ff)B" ref-time3) May))
+     ;; escaped parens do not change the nesting level
+     (should (equal (time-stamp-string "%(st\\)u\\(ff)B" ref-time3) May))
+     ;; not all punctuation is allowed
+     (should-not (equal (time-stamp-string "%&B" ref-time3) May)))))
 
 (ert-deftest time-stamp-format-non-conversions ()
   "Test that without a %, the text is copied literally."
@@ -525,18 +597,31 @@
 (ert-deftest time-stamp-format-string-width ()
   "Test time-stamp string width modifiers."
   (with-time-stamp-test-env
-    ;; strings truncate on the right or are blank-padded on the left
-    (should (equal (time-stamp-string "%0P" ref-time3) ""))
-    (should (equal (time-stamp-string "%1P" ref-time3) "A"))
-    (should (equal (time-stamp-string "%2P" ref-time3) "AM"))
-    (should (equal (time-stamp-string "%3P" ref-time3) " AM"))
-    (should (equal (time-stamp-string "%0%" ref-time3) ""))
-    (should (equal (time-stamp-string "%1%" ref-time3) "%"))
-    (should (equal (time-stamp-string "%2%" ref-time3) " %"))
-    (should (equal (time-stamp-string "%#3a" ref-time3) "SUN"))
-    (should (equal (time-stamp-string "%#3b" ref-time2) "NOV"))))
+   (let ((May (format-time-string "%b" ref-time3 t))
+         (SUN (format-time-string "%^a" ref-time3 t))
+         (NOV (format-time-string "%^b" ref-time2 t)))
+     ;; strings truncate on the right or are blank-padded on the left
+     (should (equal (time-stamp-string "%0b" ref-time3) ""))
+     (should (equal (time-stamp-string "%1b" ref-time3) (substring May 0 1)))
+     (should (equal (time-stamp-string "%2b" ref-time3) (substring May 0 2)))
+     (should (equal (time-stamp-string "%3b" ref-time3) May))
+     (should (equal (time-stamp-string "%4b" ref-time3) (concat " " May)))
+     (should (equal (time-stamp-string "%0%" ref-time3) ""))
+     (should (equal (time-stamp-string "%1%" ref-time3) "%"))
+     (should (equal (time-stamp-string "%2%" ref-time3) " %"))
+     (should (equal (time-stamp-string "%9%" ref-time3) "        %"))
+     (should (equal (time-stamp-string "%10%" ref-time3) "         %"))
+     (should (equal (time-stamp-string "%#3a" ref-time3) SUN))
+     (should (equal (time-stamp-string "%#3b" ref-time2) NOV)))))
 
 ;;; Tests of helper functions
+
+(ert-deftest time-stamp-helper-string-defaults ()
+  "Test that time-stamp-string defaults its format to time-stamp-format."
+  (with-time-stamp-test-env
+    (should (equal (time-stamp-string nil ref-time1)
+                   (time-stamp-string time-stamp-format ref-time1)))
+    (should (equal (time-stamp-string 'not-a-string ref-time1) nil))))
 
 (ert-deftest time-stamp-helper-zone-type-p ()
   "Test time-stamp-zone-type-p."

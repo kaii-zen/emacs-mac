@@ -27,6 +27,7 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (require 'seq) ; tab-line.el is not pre-loaded so it's safe to use it here
 
 
@@ -34,6 +35,18 @@
   "Window-local tabs."
   :group 'convenience
   :version "27.1")
+
+(defcustom tab-line-tab-face-functions '(tab-line-tab-face-special)
+  "Functions called to modify tab faces.
+Each function is called with five arguments: the tab, a list of
+all tabs, the face returned by the previously called modifier,
+whether the tab is a buffer, and whether the tab is selected."
+  :type '(repeat
+          (choice (function-item tab-line-tab-face-special)
+                  (function-item tab-line-tab-face-inactive-alternating)
+                  (function :tag "Custom function")))
+  :group 'tab-line
+  :version "28.1")
 
 (defgroup tab-line-faces '((tab-line custom-face)) ; tab-line is defined in faces.el
   "Faces used in the tab line."
@@ -61,6 +74,25 @@
      :inverse-video t))
   "Tab line face for non-selected tab."
   :version "27.1"
+  :group 'tab-line-faces)
+
+(defface tab-line-tab-inactive-alternate
+  `((t (:inherit tab-line-tab-inactive :background "grey65")))
+  "Alternate face for inactive tab-line tabs.
+Applied to alternating tabs when option
+`tab-line-tab-face-functions' includes function
+`tab-line-tab-face-inactive-alternating'."
+  :version "28.1"
+  :group 'tab-line-faces)
+
+(defface tab-line-tab-special
+  '((default (:weight bold))
+    (((supports :slant italic))
+     (:slant italic :weight normal)))
+  "Face for special (i.e. non-file-backed) tabs.
+Applied when option `tab-line-tab-face-functions' includes
+function `tab-line-tab-face-special'."
+  :version "28.1"
   :group 'tab-line-faces)
 
 (defface tab-line-tab-current
@@ -240,8 +272,7 @@ to `tab-line-tab-name-truncated-buffer'."
   :group 'tab-line
   :version "27.1")
 
-(defvar tab-line-tab-name-ellipsis
-  (if (char-displayable-p ?…) "…" "..."))
+(defvar tab-line-tab-name-ellipsis t)
 
 (defun tab-line-tab-name-truncated-buffer (buffer &optional _buffers)
   "Generate tab name from BUFFER.
@@ -413,7 +444,14 @@ variable `tab-line-tabs-function'."
                                   (cdr (assq 'selected tab))))
                     (name (if buffer-p
                               (funcall tab-line-tab-name-function tab tabs)
-                            (cdr (assq 'name tab)))))
+                            (cdr (assq 'name tab))))
+                    (face (if selected-p
+                              (if (eq (selected-window) (old-selected-window))
+                                  'tab-line-tab-current
+                                'tab-line-tab)
+                            'tab-line-tab-inactive)))
+               (dolist (fn tab-line-tab-face-functions)
+                 (setf face (funcall fn tab tabs face buffer-p selected-p)))
                (concat
                 separator
                 (apply 'propertize
@@ -426,11 +464,7 @@ variable `tab-line-tabs-function'."
                        `(
                          tab ,tab
                          ,@(if selected-p '(selected t))
-                         face ,(if selected-p
-                                   (if (eq (selected-window) (old-selected-window))
-                                       'tab-line-tab-current
-                                     'tab-line-tab)
-                                 'tab-line-tab-inactive)
+                         face ,face
                          mouse-face tab-line-highlight)))))
            tabs))
          (hscroll-data (tab-line-auto-hscroll strings hscroll)))
@@ -453,6 +487,24 @@ variable `tab-line-tabs-function'."
                 tab-line-new-button-show
                 tab-line-new-button)
        (list tab-line-new-button)))))
+
+(defun tab-line-tab-face-inactive-alternating (tab tabs face _buffer-p selected-p)
+  "Return FACE for TAB in TABS with alternation.
+When TAB is an inactive buffer and is even-numbered, make FACE
+inherit from `tab-line-tab-inactive-alternate'.  For use in
+`tab-line-tab-face-functions'."
+  (when (and (not selected-p) (cl-evenp (cl-position tab tabs)))
+    (setf face `(:inherit (tab-line-tab-inactive-alternate ,face))))
+  face)
+
+(defun tab-line-tab-face-special (tab _tabs face buffer-p _selected-p)
+  "Return FACE for TAB according to whether it's special.
+When TAB is a non-file-backed buffer, make FACE inherit from
+`tab-line-tab-special'.  For use in
+`tab-line-tab-face-functions'."
+  (when (and buffer-p (not (buffer-file-name tab)))
+    (setf face `(:inherit (tab-line-tab-special ,face))))
+  face)
 
 (defvar tab-line-auto-hscroll)
 
@@ -599,7 +651,9 @@ corresponding to the switched buffer."
   (if (functionp tab-line-new-tab-choice)
       (funcall tab-line-new-tab-choice)
     (let ((tab-line-tabs-buffer-groups mouse-buffer-menu-mode-groups))
-      (if (and (listp mouse-event) window-system) ; (display-popup-menus-p)
+      (if (and (listp mouse-event)
+               (display-popup-menus-p)
+               (not tty-menu-open-use-tmm))
           (mouse-buffer-menu mouse-event) ; like (buffer-menu-open)
         ;; tty menu doesn't support mouse clicks, so use tmm
         (tmm-prompt (mouse-buffer-menu-keymap))))))
@@ -642,6 +696,16 @@ using the `previous-buffer' command."
       (with-selected-window window
         (switch-to-buffer buffer))))))
 
+(defcustom tab-line-switch-cycling nil
+  "Enable cycling tab switch.
+If non-nil, `tab-line-switch-to-prev-tab' in the first tab
+switches to the last tab and `tab-line-switch-to-next-tab' in the
+last tab switches to the first tab.  This variable is not consulted
+when `tab-line-tabs-function' is `tab-line-tabs-window-buffers'."
+  :type 'boolean
+  :group 'tab-line
+  :version "28.1")
+
 (defun tab-line-switch-to-prev-tab (&optional mouse-event)
   "Switch to the previous tab.
 Its effect is the same as using the `previous-buffer' command
@@ -652,13 +716,16 @@ Its effect is the same as using the `previous-buffer' command
         (switch-to-prev-buffer window)
       (with-selected-window (or window (selected-window))
         (let* ((tabs (funcall tab-line-tabs-function))
-               (tab (nth (1- (seq-position
-                              tabs (current-buffer)
-                              (lambda (tab buffer)
-                                (if (bufferp tab)
-                                    (eq buffer tab)
-                                  (eq buffer (cdr (assq 'buffer tab)))))))
-                         tabs))
+               (pos (seq-position
+                     tabs (current-buffer)
+                     (lambda (tab buffer)
+                       (if (bufferp tab)
+                           (eq buffer tab)
+                         (eq buffer (cdr (assq 'buffer tab)))))))
+               (tab (if pos
+                        (if (and tab-line-switch-cycling (<= pos 0))
+                            (nth (1- (length tabs)) tabs)
+                          (nth (1- pos) tabs))))
                (buffer (if (bufferp tab) tab (cdr (assq 'buffer tab)))))
           (when (bufferp buffer)
             (switch-to-buffer buffer)))))))
@@ -673,13 +740,16 @@ Its effect is the same as using the `next-buffer' command
         (switch-to-next-buffer window)
       (with-selected-window (or window (selected-window))
         (let* ((tabs (funcall tab-line-tabs-function))
-               (tab (nth (1+ (seq-position
-                              tabs (current-buffer)
-                              (lambda (tab buffer)
-                                (if (bufferp tab)
-                                    (eq buffer tab)
-                                  (eq buffer (cdr (assq 'buffer tab)))))))
-                         tabs))
+               (pos (seq-position
+                     tabs (current-buffer)
+                     (lambda (tab buffer)
+                       (if (bufferp tab)
+                           (eq buffer tab)
+                         (eq buffer (cdr (assq 'buffer tab)))))))
+               (tab (if pos
+                        (if (and tab-line-switch-cycling (<= (length tabs) (1+ pos)))
+                            (car tabs)
+                          (nth (1+ pos) tabs))))
                (buffer (if (bufferp tab) tab (cdr (assq 'buffer tab)))))
           (when (bufferp buffer)
             (switch-to-buffer buffer)))))))
@@ -764,11 +834,15 @@ from the tab line."
 (global-set-key [tab-line mouse-5]    'tab-line-hscroll-right)
 (global-set-key [tab-line wheel-up]   'tab-line-hscroll-left)
 (global-set-key [tab-line wheel-down] 'tab-line-hscroll-right)
+(global-set-key [tab-line wheel-left] 'tab-line-hscroll-left)
+(global-set-key [tab-line wheel-right] 'tab-line-hscroll-right)
 
 (global-set-key [tab-line S-mouse-4]    'tab-line-switch-to-prev-tab)
 (global-set-key [tab-line S-mouse-5]    'tab-line-switch-to-next-tab)
 (global-set-key [tab-line S-wheel-up]   'tab-line-switch-to-prev-tab)
 (global-set-key [tab-line S-wheel-down] 'tab-line-switch-to-next-tab)
+(global-set-key [tab-line S-wheel-left] 'tab-line-switch-to-prev-tab)
+(global-set-key [tab-line S-wheel-right] 'tab-line-switch-to-next-tab)
 
 
 (provide 'tab-line)

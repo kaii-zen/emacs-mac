@@ -30,7 +30,7 @@
 ;; your images, use image-dired.el
 ;;
 ;; The 'convert' program from 'ImageMagick'
-;; [URL:http://www.imagemagick.org/] is required.
+;; [URL:https://www.imagemagick.org/] is required.
 ;;
 ;; Thanks: Alex Schroeder <alex@gnu.org> for maintaining the package at some
 ;;         time.  The peoples at #emacs@freenode.net for numerous help.  RMS
@@ -347,8 +347,7 @@ If MARKED is non-nil, the image is marked."
 		   :conversion ,(if marked 'disabled)
 		   :margin ,thumbs-margin)))
     (insert-image i)
-    (set (make-local-variable 'thumbs-current-image-size)
-         (image-size i t))))
+    (setq-local thumbs-current-image-size (image-size i t))))
 
 (defun thumbs-insert-thumb (img &optional marked)
   "Insert the thumbnail for IMG at point.
@@ -387,7 +386,7 @@ If MARKED is non-nil, the image is marked."
     (if dir (setq default-directory dir))
     (thumbs-do-thumbs-insertion list)
     (goto-char (point-min))
-    (set (make-local-variable 'thumbs-current-dir) default-directory)))
+    (setq-local thumbs-current-dir default-directory)))
 
 ;;;###autoload
 (defun thumbs-show-from-dir (dir &optional reg same-window)

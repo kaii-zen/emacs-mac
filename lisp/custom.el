@@ -125,16 +125,9 @@ This is used in files that are preloaded (or for autoloaded
 variables), so that the initialization is done in the run-time
 context rather than the build-time context.  This also has the
 side-effect that the (delayed) initialization is performed with
-the :set function.
-
-For variables in preloaded files, you can simply use this
-function for the :initialize property.  For autoloaded variables,
-you will also need to add an autoload stanza calling this
-function, and another one setting the standard-value property.
-Or you can wrap the defcustom in a progn, to force the autoloader
-to include all of it."		   ; see eg vc-sccs-search-project-dir
-  ;; No longer true:
-  ;; "See `send-mail-function' in sendmail.el for an example."
+the :set function."
+  ;; Defvar it so as to mark it special, etc (bug#25770).
+  (internal--define-uninitialized-variable symbol)
 
   ;; Until the var is actually initialized, it is kept unbound.
   ;; This seemed to be at least as good as setting it to an arbitrary
@@ -161,7 +154,9 @@ set to nil, as the value is no longer rogue."
         ;; Whether automatically buffer-local.
         buffer-local)
     (unless (memq :group args)
-      (custom-add-to-group (custom-current-group) symbol 'custom-variable))
+      (let ((cg (custom-current-group)))
+        (when cg
+          (custom-add-to-group cg symbol 'custom-variable))))
     (while args
       (let ((keyword (pop args)))
 	(unless (symbolp keyword)
@@ -235,6 +230,8 @@ The following keywords are meaningful:
 
 :type	VALUE should be a widget type for editing the symbol's value.
 	Every `defcustom' should specify a value for this keyword.
+        See Info node `(elisp) Customization Types' for a list of
+        base types and useful composite types.
 :options VALUE should be a list of valid members of the widget type.
 :initialize
 	VALUE should be a function used to initialize the
@@ -525,7 +522,9 @@ If no such group is found, return nil."
   "For customization option SYMBOL, handle keyword arguments ARGS.
 Third argument TYPE is the custom option type."
   (unless (memq :group args)
-    (custom-add-to-group (custom-current-group) symbol type))
+    (let ((cg (custom-current-group)))
+      (when cg
+        (custom-add-to-group cg symbol type))))
   (while args
     (let ((arg (car args)))
       (setq args (cdr args))
@@ -762,6 +761,9 @@ Return non-nil if the `customized-value' property actually changed."
 	(progn (put symbol 'customized-value (list (custom-quote value)))
 	       (custom-push-theme 'theme-value symbol 'user 'set
 				  (custom-quote value)))
+      (custom-push-theme 'theme-value symbol 'user
+                         (if (get symbol 'saved-value) 'set 'reset)
+                         (custom-quote value))
       (put symbol 'customized-value nil))
     ;; Changed?
     (not (equal customized (get symbol 'customized-value)))))
@@ -771,8 +773,7 @@ Return non-nil if the `customized-value' property actually changed."
 Use the :set function to do so.  This is useful for customizable options
 that are defined before their standard value can really be computed.
 E.g. dumped variables whose default depends on run-time information."
-  ;; If it has never been set at all, defvar it so as to mark it
-  ;; special, etc (bug#25770).  This means we are initializing
+  ;; We are initializing
   ;; the variable, and normally any :set function would not apply.
   ;; For custom-initialize-delay, however, it is documented that "the
   ;; (delayed) initialization is performed with the :set function".
@@ -780,11 +781,10 @@ E.g. dumped variables whose default depends on run-time information."
   ;; custom-initialize-delay but needs the :set function custom-set-minor-mode
   ;; to also run during initialization.  So, long story short, we
   ;; always do the funcall step, even if symbol was not bound before.
-  (or (default-boundp symbol)
-      (eval `(defvar ,symbol nil))) ; reset below, so any value is fine
   (funcall (or (get symbol 'custom-set) #'set-default)
 	   symbol
-	   (eval (car (or (get symbol 'saved-value) (get symbol 'standard-value))))))
+	   (eval (car (or (get symbol 'saved-value)
+	                  (get symbol 'standard-value))))))
 
 
 ;;; Custom Themes
@@ -908,7 +908,15 @@ See `custom-known-themes' for a list of known themes."
 		     (boundp symbol))
 	    (let ((sv  (get symbol 'standard-value))
 		  (val (symbol-value symbol)))
-	      (unless (and sv (equal (eval (car sv)) val))
+	      (unless (or
+                       ;; We only do this trick if the current value
+                       ;; is different from the standard value.
+                       (and sv (equal (eval (car sv)) val))
+                       ;; And we don't do it if we would end up recording
+                       ;; the same value for the user theme.  This way we avoid
+                       ;; having ((user VALUE) (changed VALUE)).  That would be
+                       ;; useless, because we don't disable the user theme.
+                       (and (eq theme 'user) (equal (custom-quote val) value)))
 		(setq old `((changed ,(custom-quote val))))))))
 	(put symbol prop (cons (list theme value) old)))
       (put theme 'theme-settings
@@ -1003,7 +1011,10 @@ COMMENT is a comment string about SYMBOL."
 	       set)
 	  (when requests
 	    (put symbol 'custom-requests requests)
-            (mapc #'require requests))
+            ;; Load any libraries that the setting has specified as
+            ;; being required, but don't error out if the package has
+            ;; been removed.
+            (mapc (lambda (lib) (require lib nil t)) requests))
           (setq set (or (get symbol 'custom-set) #'custom-set-default))
 	  (put symbol 'saved-value (list value))
 	  (put symbol 'saved-variable-comment comment)
@@ -1369,13 +1380,36 @@ function runs.  To disable other themes, use `disable-theme'."
 		       obarray (lambda (sym) (get sym 'theme-settings)) t))))
   (unless (custom-theme-p theme)
     (error "Undefined Custom theme %s" theme))
-  (let ((settings (get theme 'theme-settings)))
+  (let ((settings (get theme 'theme-settings)) ; '(prop symbol theme value)
+        ;; We are enabling the theme, so don't inhibit enabling it.  (Bug#34027)
+        (custom--inhibit-theme-enable nil))
     ;; Loop through theme settings, recalculating vars/faces.
     (dolist (s settings)
       (let* ((prop (car s))
-	     (symbol (cadr s))
-	     (spec-list (get symbol prop)))
-	(put symbol prop (cons (cddr s) (assq-delete-all theme spec-list)))
+             (symbol (cadr s))
+             (spec-list (get symbol prop))
+             (sv (get symbol 'standard-value))
+             (val (and (boundp symbol) (symbol-value symbol))))
+        ;; We can't call `custom-push-theme' when enabling the theme: it's not
+        ;; that the theme settings have changed, it's just that we want to
+        ;; enable those settings.  But we might need to save a user setting
+        ;; outside of Customize, in order to get back to it when disabling
+        ;; the theme, just like in `custom-push-theme'.
+        (when (and (custom--should-apply-setting theme)
+                   ;; Only do it for variables; for faces, using
+                   ;; `face-new-frame-defaults' is enough.
+                   (eq prop 'theme-value)
+                   (boundp symbol)
+                   (not (or spec-list
+                            ;; Only if the current value is different from
+                            ;; the standard value.
+                            (and sv (equal (eval (car sv)) val))
+                            ;; And only if the changed value is different
+                            ;; from the new value under the user theme.
+                            (and (eq theme 'user)
+                                 (equal (custom-quote val) (nth 3 s))))))
+          (setq spec-list `((changed ,(custom-quote val)))))
+        (put symbol prop (cons (cddr s) (assq-delete-all theme spec-list)))
 	(cond
 	 ((eq prop 'theme-face)
 	  (custom-theme-recalc-face symbol))
@@ -1444,7 +1478,7 @@ See `custom-enabled-themes' for a list of enabled themes."
 	(let* ((prop   (car s))
 	       (symbol (cadr s))
 	       (val (assq-delete-all theme (get symbol prop))))
-	  (put symbol prop val)
+          (custom-push-theme prop symbol theme 'reset)
 	  (cond
 	   ((eq prop 'theme-value)
 	    (custom-theme-recalc-variable symbol))
@@ -1544,6 +1578,20 @@ Each of the arguments ARGS has this form:
 
 This means reset VARIABLE.  (The argument IGNORED is ignored)."
     (apply #'custom-theme-reset-variables 'user args))
+
+(defun custom-add-choice (variable choice)
+  "Add CHOICE to the custom type of VARIABLE.
+If a choice with the same tag already exists, no action is taken."
+  (let ((choices (get variable 'custom-type)))
+    (unless (eq (car choices) 'choice)
+      (error "Not a choice type: %s" choices))
+    (unless (seq-find (lambda (elem)
+                        (equal (caddr (member :tag elem))
+                               (caddr (member :tag choice))))
+                      (cdr choices))
+      ;; Put the new choice at the end.
+      (put variable 'custom-type
+           (append choices (list choice))))))
 
 ;;; The End.
 

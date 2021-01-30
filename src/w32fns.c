@@ -80,7 +80,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 extern int w32_console_toggle_lock_key (int, Lisp_Object);
 extern void w32_menu_display_help (HWND, HMENU, UINT, UINT);
 extern void w32_free_menu_strings (HWND);
-extern const char *map_w32_filename (const char *, const char **);
 
 #ifndef IDC_HAND
 #define IDC_HAND MAKEINTRESOURCE(32649)
@@ -166,6 +165,10 @@ typedef HIMC (WINAPI * ImmGetContext_Proc) (IN HWND window);
 typedef BOOL (WINAPI * ImmReleaseContext_Proc) (IN HWND wnd, IN HIMC context);
 typedef BOOL (WINAPI * ImmSetCompositionWindow_Proc) (IN HIMC context,
 						      IN COMPOSITIONFORM *form);
+/* For toggling IME status.  */
+typedef BOOL (WINAPI * ImmGetOpenStatus_Proc) (IN HIMC);
+typedef BOOL (WINAPI * ImmSetOpenStatus_Proc) (IN HIMC, IN BOOL);
+
 typedef HMONITOR (WINAPI * MonitorFromPoint_Proc) (IN POINT pt, IN DWORD flags);
 typedef BOOL (WINAPI * GetMonitorInfo_Proc)
   (IN HMONITOR monitor, OUT struct MONITOR_INFO* info);
@@ -185,6 +188,8 @@ typedef HRESULT (WINAPI *SetThreadDescription_Proc)
 TrackMouseEvent_Proc track_mouse_event_fn = NULL;
 ImmGetCompositionString_Proc get_composition_string_fn = NULL;
 ImmGetContext_Proc get_ime_context_fn = NULL;
+ImmGetOpenStatus_Proc get_ime_open_status_fn = NULL;
+ImmSetOpenStatus_Proc set_ime_open_status_fn = NULL;
 ImmReleaseContext_Proc release_ime_context_fn = NULL;
 ImmSetCompositionWindow_Proc set_ime_composition_window_fn = NULL;
 MonitorFromPoint_Proc monitor_from_point_fn = NULL;
@@ -859,161 +864,14 @@ x_to_w32_color (const char * colorname)
 
   block_input ();
 
-  if (colorname[0] == '#')
+  unsigned short r, g, b;
+  if (parse_color_spec (colorname, &r, &g, &b))
     {
-      /* Could be an old-style RGB Device specification.  */
-      int size = strlen (colorname + 1);
-      char *color = alloca (size + 1);
-
-      strcpy (color, colorname + 1);
-      if (size == 3 || size == 6 || size == 9 || size == 12)
-	{
-	  UINT colorval;
-	  int i, pos;
-	  pos = 0;
-	  size /= 3;
-	  colorval = 0;
-
-	  for (i = 0; i < 3; i++)
-	    {
-	      char *end;
-	      char t;
-	      unsigned long value;
-
-	      /* The check for 'x' in the following conditional takes into
-		 account the fact that strtol allows a "0x" in front of
-		 our numbers, and we don't.  */
-	      if (!isxdigit (color[0]) || color[1] == 'x')
-		break;
-	      t = color[size];
-	      color[size] = '\0';
-	      value = strtoul (color, &end, 16);
-	      color[size] = t;
-	      if (errno == ERANGE || end - color != size)
-		break;
-	      switch (size)
-		{
-		case 1:
-		  value = value * 0x10;
-		  break;
-		case 2:
-		  break;
-		case 3:
-		  value /= 0x10;
-		  break;
-		case 4:
-		  value /= 0x100;
-		  break;
-		}
-	      colorval |= (value << pos);
-	      pos += 0x8;
-	      if (i == 2)
-		{
-		  unblock_input ();
-		  XSETINT (ret, colorval);
-		  return ret;
-		}
-	      color = end;
-	    }
-	}
+      unblock_input ();
+      /* Throw away the low 8 bits and return 0xBBGGRR.  */
+      return make_fixnum ((b & 0xff00) << 8 | (g & 0xff00) | r >> 8);
     }
-  else if (strnicmp (colorname, "rgb:", 4) == 0)
-    {
-      const char *color;
-      UINT colorval;
-      int i, pos;
-      pos = 0;
 
-      colorval = 0;
-      color = colorname + 4;
-      for (i = 0; i < 3; i++)
-	{
-	  char *end;
-	  unsigned long value;
-
-	  /* The check for 'x' in the following conditional takes into
-	     account the fact that strtol allows a "0x" in front of
-	     our numbers, and we don't.  */
-	  if (!isxdigit (color[0]) || color[1] == 'x')
-	    break;
-	  value = strtoul (color, &end, 16);
-	  if (errno == ERANGE)
-	    break;
-	  switch (end - color)
-	    {
-	    case 1:
-	      value = value * 0x10 + value;
-	      break;
-	    case 2:
-	      break;
-	    case 3:
-	      value /= 0x10;
-	      break;
-	    case 4:
-	      value /= 0x100;
-	      break;
-	    default:
-	      value = ULONG_MAX;
-	    }
-	  if (value == ULONG_MAX)
-	    break;
-	  colorval |= (value << pos);
-	  pos += 0x8;
-	  if (i == 2)
-	    {
-	      if (*end != '\0')
-		break;
-	      unblock_input ();
-	      XSETINT (ret, colorval);
-	      return ret;
-	    }
-	  if (*end != '/')
-	    break;
-	  color = end + 1;
-	}
-    }
-  else if (strnicmp (colorname, "rgbi:", 5) == 0)
-    {
-      /* This is an RGB Intensity specification.  */
-      const char *color;
-      UINT colorval;
-      int i, pos;
-      pos = 0;
-
-      colorval = 0;
-      color = colorname + 5;
-      for (i = 0; i < 3; i++)
-	{
-	  char *end;
-	  double value;
-	  UINT val;
-
-	  value = strtod (color, &end);
-	  if (errno == ERANGE)
-	    break;
-	  if (value < 0.0 || value > 1.0)
-	    break;
-	  val = (UINT)(0x100 * value);
-	  /* We used 0x100 instead of 0xFF to give a continuous
-	     range between 0.0 and 1.0 inclusive.  The next statement
-	     fixes the 1.0 case.  */
-	  if (val == 0x100)
-	    val = 0xFF;
-	  colorval |= (val << pos);
-	  pos += 0x8;
-	  if (i == 2)
-	    {
-	      if (*end != '\0')
-		break;
-	      unblock_input ();
-	      XSETINT (ret, colorval);
-	      return ret;
-	    }
-	  if (*end != '/')
-	    break;
-	  color = end + 1;
-	}
-    }
   /* I am not going to attempt to handle any of the CIE color schemes
      or TekHVC, since I don't know the algorithms for conversion to
      RGB.  */
@@ -1661,9 +1519,13 @@ w32_clear_under_internal_border (struct frame *f)
       int width = FRAME_PIXEL_WIDTH (f);
       int height = FRAME_PIXEL_HEIGHT (f);
       int face_id =
-	!NILP (Vface_remapping_alist)
-	? lookup_basic_face (NULL, f, INTERNAL_BORDER_FACE_ID)
-	: INTERNAL_BORDER_FACE_ID;
+	(FRAME_PARENT_FRAME (f)
+	 ? (!NILP (Vface_remapping_alist)
+	    ? lookup_basic_face (NULL, f, CHILD_FRAME_BORDER_FACE_ID)
+	    : CHILD_FRAME_BORDER_FACE_ID)
+	 : (!NILP (Vface_remapping_alist)
+	    ? lookup_basic_face (NULL, f, INTERNAL_BORDER_FACE_ID)
+	    : INTERNAL_BORDER_FACE_ID));
       struct face *face = FACE_FROM_ID_OR_NULL (f, face_id);
 
       block_input ();
@@ -1690,6 +1552,32 @@ w32_clear_under_internal_border (struct frame *f)
     }
 }
 
+/**
+ * w32_set_child_frame_border_width:
+ *
+ * Set width of child frame F's internal border to ARG pixels.
+ * ARG < 0 is treated like ARG = 0.
+ */
+static void
+w32_set_child_frame_border_width (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+  int argval = check_integer_range (arg, INT_MIN, INT_MAX);
+  int border = max (argval, 0);
+
+  if (border != FRAME_CHILD_FRAME_BORDER_WIDTH (f))
+    {
+      f->child_frame_border_width = border;
+
+      if (FRAME_NATIVE_WINDOW (f) != 0)
+	{
+	  adjust_frame_size (f, -1, -1, 3, false, Qchild_frame_border_width);
+
+	  if (FRAME_VISIBLE_P (f))
+	    w32_clear_under_internal_border (f);
+	}
+    }
+}
+
 
 /**
  * w32_set_internal_border_width:
@@ -1700,10 +1588,8 @@ w32_clear_under_internal_border (struct frame *f)
 static void
 w32_set_internal_border_width (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-  int border;
-
-  CHECK_TYPE_RANGED_INTEGER (int, arg);
-  border = max (XFIXNUM (arg), 0);
+  int argval = check_integer_range (arg, INT_MIN, INT_MAX);
+  int border = max (argval, 0);
 
   if (border != FRAME_INTERNAL_BORDER_WIDTH (f))
     {
@@ -3307,6 +3193,7 @@ w32_name_of_message (UINT msg)
       M (WM_EMACS_SETCURSOR),
       M (WM_EMACS_SHOWCURSOR),
       M (WM_EMACS_PAINT),
+      M (WM_EMACS_IME_STATUS),
       M (WM_CHAR),
 #undef M
       { 0, 0 }
@@ -3444,6 +3331,21 @@ w32_msg_pump (deferred_msg * msg_buf)
 		  emacs_abort ();
 	      }
 	      break;
+            case WM_EMACS_IME_STATUS:
+	      {
+		focus_window = GetFocus ();
+		if (!set_ime_open_status_fn || !focus_window)
+		  break;
+
+		HIMC context = get_ime_context_fn (focus_window);
+		if (!context)
+		  break;
+
+		set_ime_open_status_fn (context, msg.wParam != 0);
+		release_ime_context_fn (focus_window, context);
+		break;
+	      }
+
 #ifdef MSG_DEBUG
 	      /* Broadcast messages make it here, so you need to be looking
 		 for something in particular for this to be useful.  */
@@ -3768,7 +3670,7 @@ get_wm_chars (HWND aWnd, int *buf, int buflen, int ignore_ctrl, int ctrl,
    non-Emacs window with the same language environment, and using (dead)keys
    there would change the value stored in the kernel, but not this value.  */
 /* A layout may emit deadkey=0.  It looks like this would reset the state
-   of the kernel's finite automaton (equivalent to emiting 0-length string,
+   of the kernel's finite automaton (equivalent to emitting 0-length string,
    which is otherwise impossible in the dead-key map of a layout).
    Be ready to treat the case when this delivers WM_(SYS)DEADCHAR. */
 static int after_deadkey = -1;
@@ -3829,7 +3731,7 @@ deliver_wm_chars (int do_translate, HWND hwnd, UINT msg, UINT wParam,
 	 of w32_get_key_modifiers ().  */
       wmsg.dwModifiers = w32_kbd_mods_to_emacs (console_modifiers, wParam);
 
-      /* What follows is just heuristics; the correct treatement requires
+      /* What follows is just heuristics; the correct treatment requires
 	 non-destructive ToUnicode():
 	   http://search.cpan.org/~ilyaz/UI-KeyboardLayout/lib/UI/KeyboardLayout.pm#Can_an_application_on_Windows_accept_keyboard_events?_Part_IV:_application-specific_modifiers
 
@@ -6001,6 +5903,28 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
 			    parameters);
     }
 
+  /* Same for child frames.  */
+  if (NILP (Fassq (Qchild_frame_border_width, parameters)))
+    {
+      Lisp_Object value;
+
+      value = gui_display_get_arg (dpyinfo, parameters, Qchild_frame_border_width,
+                                   "childFrameBorderWidth", "childFrameBorderWidth",
+                                   RES_TYPE_NUMBER);
+      if (! EQ (value, Qunbound))
+	parameters = Fcons (Fcons (Qchild_frame_border_width, value),
+		       parameters);
+
+    }
+
+  gui_default_parameter (f, parameters, Qchild_frame_border_width,
+#ifdef USE_GTK /* We used to impose 0 in xg_create_frame_widgets.  */
+			 make_fixnum (0),
+#else
+			 make_fixnum (1),
+#endif
+			 "childFrameBorderWidth", "childFrameBorderWidth",
+			 RES_TYPE_NUMBER);
   gui_default_parameter (f, parameters, Qinternal_border_width, make_fixnum (0),
                          "internalBorderWidth", "InternalBorder", RES_TYPE_NUMBER);
   gui_default_parameter (f, parameters, Qright_divider_width, make_fixnum (0),
@@ -7132,7 +7056,7 @@ w32_create_tip_frame (struct w32_display_info *dpyinfo, Lisp_Object parms)
      Frame parameters may be changed if .Xdefaults contains
      specifications for the default font.  For example, if there is an
      `Emacs.default.attributeBackground: pink', the `background-color'
-     attribute of the frame get's set, which let's the internal border
+     attribute of the frame gets set, which let's the internal border
      of the tooltip frame appear in pink.  Prevent this.  */
   {
     Lisp_Object bg = Fframe_parameter (frame, Qbackground_color);
@@ -7216,7 +7140,7 @@ compute_tip_xy (struct frame *f,
 
       /* If multiple monitor support is available, constrain the tip onto
 	 the current monitor. This improves the above by allowing negative
-	 co-ordinates if monitor positions are such that they are valid, and
+	 coordinates if monitor positions are such that they are valid, and
 	 snaps a tooltip onto a single monitor if we are close to the edge
 	 where it would otherwise flow onto the other monitor (or into
 	 nothingness if there is a gap in the overlap).  */
@@ -7500,7 +7424,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
   tip_f = XFRAME (tip_frame);
   window = FRAME_ROOT_WINDOW (tip_f);
-  tip_buf = Fget_buffer_create (tip);
+  tip_buf = Fget_buffer_create (tip, Qnil);
   /* We will mark the tip window a "pseudo-window" below, and such
      windows cannot have display margins.  */
   bset_left_margin_cols (XBUFFER (tip_buf), make_fixnum (0));
@@ -8091,7 +8015,7 @@ DEFUN ("system-move-file-to-trash", Fsystem_move_file_to_trash,
 	{
 	  SHFILEOPSTRUCTW file_op_w;
 	  /* We need one more element beyond MAX_PATH because this is
-	     a list of file names, with the last element double-NUL
+	     a list of file names, with the last element double-null
 	     terminated. */
 	  wchar_t tmp_path_w[MAX_PATH + 1];
 
@@ -8210,7 +8134,7 @@ operations:
  \"pastelink\"
 	   - create a shortcut in DOCUMENT (which must be a directory)
 	       the file or directory whose name is in the clipboard.
- \"runas\"   - run DOCUMENT, which must be an excutable file, with
+ \"runas\"   - run DOCUMENT, which must be an executable file, with
 	       elevated privileges (a.k.a. \"as Administrator\").
  \"properties\"
 	   - open the property sheet dialog for DOCUMENT.
@@ -8263,7 +8187,6 @@ a ShowWindow flag:
   /* Encode filename, current directory and parameters.  */
   current_dir = GUI_ENCODE_FILE (current_dir);
   document = GUI_ENCODE_FILE (document);
-  doc_w = GUI_SDATA (document);
   if (STRINGP (parameters))
     {
       parameters = GUI_ENCODE_SYSTEM (parameters);
@@ -8274,6 +8197,7 @@ a ShowWindow flag:
       operation = GUI_ENCODE_SYSTEM (operation);
       ops_w = GUI_SDATA (operation);
     }
+  doc_w = GUI_SDATA (document);
   result = (intptr_t) ShellExecuteW (NULL, ops_w, doc_w, params_w,
 				     GUI_SDATA (current_dir),
 				     (FIXNUMP (show_flag)
@@ -8358,7 +8282,7 @@ a ShowWindow flag:
   handler = Ffind_file_name_handler (absdoc, Qfile_exists_p);
   if (NILP (handler))
     {
-      Lisp_Object absdoc_encoded = ENCODE_FILE (absdoc);
+      Lisp_Object absdoc_encoded = Fcopy_sequence (ENCODE_FILE (absdoc));
 
       if (faccessat (AT_FDCWD, SSDATA (absdoc_encoded), F_OK, AT_EACCESS) == 0)
 	{
@@ -9209,8 +9133,8 @@ The coordinates X and Y are interpreted in pixels relative to a position
   UINT trail_num = 0;
   BOOL ret = false;
 
-  CHECK_TYPE_RANGED_INTEGER (int, x);
-  CHECK_TYPE_RANGED_INTEGER (int, y);
+  int xval = check_integer_range (x, INT_MIN, INT_MAX);
+  int yval = check_integer_range (y, INT_MIN, INT_MAX);
 
   block_input ();
   /* When "mouse trails" are in effect, moving the mouse cursor
@@ -9219,7 +9143,7 @@ The coordinates X and Y are interpreted in pixels relative to a position
   if (os_subtype == OS_NT
       && w32_major_version + w32_minor_version >= 6)
     ret = SystemParametersInfo (SPI_GETMOUSETRAILS, 0, &trail_num, 0);
-  SetCursorPos (XFIXNUM (x), XFIXNUM (y));
+  SetCursorPos (xval, yval);
   if (ret)
     SystemParametersInfo (SPI_SETMOUSETRAILS, trail_num, NULL, 0);
   unblock_input ();
@@ -9556,6 +9480,18 @@ cache_system_info (void)
   w32_num_mouse_buttons = GetSystemMetrics (SM_CMOUSEBUTTONS);
 }
 
+#ifdef WINDOWSNT
+char *
+w32_version_string (void)
+{
+  /* NNN.NNN.NNNNNNNNNN */
+  static char version_string[3 + 1 + 3 + 1 + 10 + 1];
+  _snprintf (version_string, sizeof version_string, "%d.%d.%d",
+	     w32_major_version, w32_minor_version, w32_build_number);
+  return version_string;
+}
+#endif
+
 #ifdef EMACSDEBUG
 void
 _DebPrint (const char *fmt, ...)
@@ -9866,7 +9802,7 @@ get_dll_version (const char *dll_name)
 /* Return the number of bytes in UTF-8 encoded string STR that
    corresponds to at most LIM characters.  If STR ends before LIM
    characters, return the number of bytes in STR including the
-   terminating NUL byte.  */
+   terminating null byte.  */
 static int
 utf8_mbslen_lim (const char *str, int lim)
 {
@@ -10226,6 +10162,51 @@ DEFUN ("w32-notification-close",
 
 #endif	/* WINDOWSNT && !HAVE_DBUS */
 
+DEFUN ("w32-get-ime-open-status",
+       Fw32_get_ime_open_status, Sw32_get_ime_open_status,
+       0, 0, 0,
+       doc: /* Return non-nil if IME is active, otherwise return nil.
+
+IME, the MS-Windows Input Method Editor, can be active or inactive.
+This function returns non-nil if the IME is active, otherwise nil.  */)
+  (void)
+{
+  struct frame *sf =
+    FRAMEP (selected_frame) && FRAME_LIVE_P (XFRAME (selected_frame))
+    ? XFRAME  (selected_frame)
+    : NULL;
+
+  if (sf)
+    {
+      HWND current_window = FRAME_W32_WINDOW (sf);
+      HIMC context = get_ime_context_fn (current_window);
+      if (context)
+	{
+	  BOOL retval = get_ime_open_status_fn (context);
+	  release_ime_context_fn (current_window, context);
+
+	  return retval ? Qt : Qnil;
+	}
+    }
+
+  return Qnil;
+}
+
+DEFUN ("w32-set-ime-open-status",
+       Fw32_set_ime_open_status, Sw32_set_ime_open_status,
+       1, 1, 0,
+       doc: /* Open or close the IME according to STATUS.
+
+This function activates the IME, the MS-Windows Input Method Editor,
+if STATUS is non-nil, otherwise it deactivates the IME.  */)
+  (Lisp_Object status)
+{
+  unsigned ime_status = NILP (status) ? 0 : 1;
+
+  PostThreadMessage (dwWindowsThreadId, WM_EMACS_IME_STATUS, ime_status, 0);
+  return Qnil;
+}
+
 
 #ifdef WINDOWSNT
 /***********************************************************************
@@ -10315,6 +10296,7 @@ frame_parm_handler w32_frame_parm_handlers[] =
   w32_set_foreground_color,
   w32_set_icon_name,
   w32_set_icon_type,
+  w32_set_child_frame_border_width,
   w32_set_internal_border_width,
   gui_set_right_divider_width,
   gui_set_bottom_divider_width,
@@ -10761,6 +10743,8 @@ keys when IME input is received.  */);
   defsubr (&Sw32_notification_notify);
   defsubr (&Sw32_notification_close);
 #endif
+  defsubr (&Sw32_get_ime_open_status);
+  defsubr (&Sw32_set_ime_open_status);
 
 #ifdef WINDOWSNT
   defsubr (&Sw32_read_registry);
@@ -11049,6 +11033,11 @@ globals_of_w32fns (void)
       get_proc_addr (imm32_lib, "ImmReleaseContext");
     set_ime_composition_window_fn = (ImmSetCompositionWindow_Proc)
       get_proc_addr (imm32_lib, "ImmSetCompositionWindow");
+
+    get_ime_open_status_fn = (ImmGetOpenStatus_Proc)
+      get_proc_addr (imm32_lib, "ImmGetOpenStatus");
+    set_ime_open_status_fn = (ImmSetOpenStatus_Proc)
+      get_proc_addr (imm32_lib, "ImmSetOpenStatus");
   }
 
   HMODULE hm_kernel32 = GetModuleHandle ("kernel32.dll");

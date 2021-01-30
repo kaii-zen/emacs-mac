@@ -4,18 +4,20 @@
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
-;; This program is free software: you can redistribute it and/or
+;; This file is part of GNU Emacs.
+;;
+;; GNU Emacs is free software: you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
 ;; published by the Free Software Foundation, either version 3 of the
 ;; License, or (at your option) any later version.
 ;;
-;; This program is distributed in the hope that it will be useful, but
+;; GNU Emacs is distributed in the hope that it will be useful, but
 ;; WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ;; General Public License for more details.
 ;;
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see `https://www.gnu.org/licenses/'.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -27,40 +29,74 @@
 ;; tests in tramp-tests.el.
 
 (require 'ert)
+(require 'ert-x)
 (require 'tramp-archive)
 (defvar tramp-copy-size-limit)
 (defvar tramp-persistency-file-name)
 
-(defconst tramp-archive-test-resource-directory
-  (let ((default-directory
-	  (if load-in-progress
-	      (file-name-directory load-file-name)
-	    default-directory)))
-    (cond
-     ((file-accessible-directory-p (expand-file-name "resources"))
-      (expand-file-name "resources"))
-     ((file-accessible-directory-p (expand-file-name "tramp-archive-resources"))
-      (expand-file-name "tramp-archive-resources"))))
-  "The resources directory test files are located in.")
+;; `ert-resource-file' was introduced in Emacs 28.1.
+(unless (macrop 'ert-resource-file)
+  (eval-and-compile
+    (defvar ert-resource-directory-format "%s-resources/"
+      "Format for `ert-resource-directory'.")
+    (defvar ert-resource-directory-trim-left-regexp ""
+      "Regexp for `string-trim' (left) used by `ert-resource-directory'.")
+    (defvar ert-resource-directory-trim-right-regexp "\\(-tests?\\)?\\.el"
+      "Regexp for `string-trim' (right) used by `ert-resource-directory'.")
 
-(defconst tramp-archive-test-file-archive
-  (file-truename
-   (expand-file-name "foo.tar.gz" tramp-archive-test-resource-directory))
+    (defmacro ert-resource-directory ()
+      "Return absolute file name of the resource directory for this file.
+
+The path to the resource directory is the \"resources\" directory
+in the same directory as the test file.
+
+If that directory doesn't exist, use the directory named like the
+test file but formatted by `ert-resource-directory-format' and trimmed
+using `string-trim' with arguments
+`ert-resource-directory-trim-left-regexp' and
+`ert-resource-directory-trim-right-regexp'.  The default values mean
+that if called from a test file named \"foo-tests.el\", return
+the absolute file name for \"foo-resources\"."
+      `(let* ((testfile ,(or (bound-and-true-p byte-compile-current-file)
+                             (and load-in-progress load-file-name)
+                             buffer-file-name))
+              (default-directory (file-name-directory testfile)))
+	 (file-truename
+	  (if (file-accessible-directory-p "resources/")
+              (expand-file-name "resources/")
+            (expand-file-name
+             (format
+	      ert-resource-directory-format
+              (string-trim testfile
+			   ert-resource-directory-trim-left-regexp
+			   ert-resource-directory-trim-right-regexp)))))))
+
+    (defmacro ert-resource-file (file)
+      "Return file name of resource file named FILE.
+A resource file is in the resource directory as per
+`ert-resource-directory'."
+      `(expand-file-name ,file (ert-resource-directory)))))
+
+(defconst tramp-archive-test-file-archive (ert-resource-file "foo.tar.gz")
   "The test file archive.")
+
+(defun tramp-archive-test-file-archive-hexlified ()
+    "Return hexlified `tramp-archive-test-file-archive'.
+Do not hexlify \"/\".  This hexlified string is used in `file:///' URLs."
+  (let* ((url-unreserved-chars (cons ?/ url-unreserved-chars)))
+    (url-hexify-string tramp-archive-test-file-archive)))
 
 (defconst tramp-archive-test-archive
   (file-name-as-directory tramp-archive-test-file-archive)
   "The test archive.")
 
 (defconst tramp-archive-test-directory
-  (file-truename
-   (expand-file-name "foo.iso" tramp-archive-test-resource-directory))
+  (file-truename (ert-resource-file "foo.iso"))
   "A directory file name, which looks like an archive.")
 
 (setq password-cache-expiry nil
       tramp-cache-read-persistent-data t ;; For auth-sources.
       tramp-copy-size-limit nil
-      tramp-message-show-message nil
       tramp-persistency-file-name nil
       tramp-verbose 0)
 
@@ -175,7 +211,8 @@ variables, so we check the Emacs version directly."
       (should
        (string-equal
 	host
-	(url-hexify-string (concat "file://" tramp-archive-test-file-archive))))
+	(url-hexify-string
+	 (concat "file://" (tramp-archive-test-file-archive-hexlified)))))
       (should-not port)
       (should (string-equal localname "/"))
       (should (string-equal archive tramp-archive-test-file-archive)))
@@ -194,7 +231,8 @@ variables, so we check the Emacs version directly."
       (should
        (string-equal
 	host
-	(url-hexify-string (concat "file://" tramp-archive-test-file-archive))))
+	(url-hexify-string
+	 (concat "file://" (tramp-archive-test-file-archive-hexlified)))))
       (should-not port)
       (should (string-equal localname "/foo"))
       (should (string-equal archive tramp-archive-test-file-archive)))
@@ -238,7 +276,8 @@ variables, so we check the Emacs version directly."
 		    ;; archive boundaries.  So we must cut the
 		    ;; trailing slash ourselves.
 		    (substring
-		     (file-name-directory tramp-archive-test-file-archive)
+		     (file-name-directory
+		      (tramp-archive-test-file-archive-hexlified))
 		     0 -1)))
 		  nil "/"))
 		(file-name-nondirectory tramp-archive-test-file-archive)))))
@@ -971,4 +1010,5 @@ If INTERACTIVE is non-nil, the tests are run interactively."
    "^tramp-archive"))
 
 (provide 'tramp-archive-tests)
+
 ;;; tramp-archive-tests.el ends here

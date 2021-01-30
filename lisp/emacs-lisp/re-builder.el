@@ -96,7 +96,7 @@
 ;;    out.
 
 ;; Q: But how can I then make out the sub-expressions?
-;; A: Thats where the `sub-expression mode' comes in.  In it only the
+;; A: That's where the `sub-expression mode' comes in.  In it only the
 ;;    digit keys are assigned to perform an update that will flash the
 ;;    corresponding subexp only.
 
@@ -271,7 +271,7 @@ Except for Lisp syntax this is the same as `reb-regexp'.")
 
 (define-derived-mode reb-mode nil "RE Builder"
   "Major mode for interactively building Regular Expressions."
-  (set (make-local-variable 'blink-matching-paren) nil)
+  (setq-local blink-matching-paren nil)
   (reb-mode-common))
 
 (defvar reb-lisp-mode-map
@@ -489,7 +489,7 @@ Optional argument SYNTAX must be specified if called non-interactively."
   (interactive
    (list (intern
 	  (completing-read
-	   (format "Select syntax (default %s): " reb-re-syntax)
+	   (format-prompt "Select syntax" reb-re-syntax)
 	   '(read string sregex rx)
 	   nil t nil nil (symbol-name reb-re-syntax)
            'reb-change-syntax-hist))))
@@ -832,8 +832,8 @@ If SUBEXP is non-nil mark only the corresponding sub-expressions."
     (let ((font-lock-is-on font-lock-mode))
       (font-lock-mode -1)
       (kill-local-variable 'font-lock-set-defaults)
-      ;;(set (make-local-variable 'reb-re-syntax) 'string)
-      ;;(set (make-local-variable 'reb-re-syntax) 'rx)
+      ;;(setq-local reb-re-syntax 'string)
+      ;;(setq-local reb-re-syntax 'rx)
       (setq font-lock-defaults
             (cond
              ((memq reb-re-syntax '(read string))

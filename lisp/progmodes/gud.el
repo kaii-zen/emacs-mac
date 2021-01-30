@@ -486,9 +486,8 @@ The value t means that there is no stack, and we are in display-file mode.")
   "Additional menu items to add to the speedbar frame.")
 
 ;; Make sure our special speedbar mode is loaded
-(if (featurep 'speedbar)
-    (gud-install-speedbar-variables)
-  (add-hook 'speedbar-load-hook 'gud-install-speedbar-variables))
+(with-eval-after-load 'speedbar
+  (gud-install-speedbar-variables))
 
 (defun gud-expansion-speedbar-buttons (_directory _zero)
   "Wrapper for call to `speedbar-add-expansion-list'.
@@ -759,7 +758,7 @@ the buffer in which this command was invoked."
      "Multiple debugging requires restarting in text command mode"))
 
   (gud-common-init command-line nil 'gud-gdb-marker-filter)
-  (set (make-local-variable 'gud-minor-mode) 'gdb)
+  (setq-local gud-minor-mode 'gdb)
 
   (gud-def gud-break  "break %f:%l"  "\C-b" "Set breakpoint at current line.")
   (gud-def gud-tbreak "tbreak %f:%l" "\C-t"
@@ -789,7 +788,7 @@ the buffer in which this command was invoked."
 
   (add-hook 'completion-at-point-functions #'gud-gdb-completion-at-point
             nil 'local)
-  (set (make-local-variable 'gud-gdb-completion-function) 'gud-gdb-completions)
+  (setq-local gud-gdb-completion-function 'gud-gdb-completions)
 
   (local-set-key "\C-i" 'completion-at-point)
   (setq comint-prompt-regexp "^(.*gdb[+]?) *")
@@ -1045,7 +1044,7 @@ and source-file directory for your debugger."
       (error "The sdb support requires a valid tags table to work"))
 
   (gud-common-init command-line nil 'gud-sdb-marker-filter 'gud-sdb-find-file)
-  (set (make-local-variable 'gud-minor-mode) 'sdb)
+  (setq-local gud-minor-mode 'sdb)
 
   (gud-def gud-break  "%l b" "\C-b"   "Set breakpoint at current line.")
   (gud-def gud-tbreak "%l c" "\C-t"   "Set temporary breakpoint at current line.")
@@ -1324,7 +1323,7 @@ and source-file directory for your debugger."
     (gud-common-init command-line 'gud-dbx-massage-args
 		     'gud-dbx-marker-filter)))
 
-  (set (make-local-variable 'gud-minor-mode) 'dbx)
+  (setq-local gud-minor-mode 'dbx)
 
   (cond
    (gud-mips-p
@@ -1425,7 +1424,7 @@ directories if your program contains sources from more than one directory."
 
   (gud-common-init command-line 'gud-xdb-massage-args
 		   'gud-xdb-marker-filter)
-  (set (make-local-variable 'gud-minor-mode) 'xdb)
+  (setq-local gud-minor-mode 'xdb)
 
   (gud-def gud-break  "b %f:%l"    "\C-b" "Set breakpoint at current line.")
   (gud-def gud-tbreak "b %f:%l\\t" "\C-t"
@@ -1579,7 +1578,7 @@ and source-file directory for your debugger."
 
   (gud-common-init command-line 'gud-perldb-massage-args
 		   'gud-perldb-marker-filter)
-  (set (make-local-variable 'gud-minor-mode) 'perldb)
+  (setq-local gud-minor-mode 'perldb)
 
   (gud-def gud-break  "b %l"         "\C-b" "Set breakpoint at current line.")
   (gud-def gud-remove "B %l"         "\C-d" "Remove breakpoint at current line")
@@ -1684,7 +1683,7 @@ and source-file directory for your debugger."
 
 ;;;###autoload
 (defun pdb (command-line)
-  "Run COMMAND-LINE in the `*gud-FILE*' buffer.
+  "Run COMMAND-LINE in the `*gud-FILE*' buffer to debug Python programs.
 
 COMMAND-LINE should include the pdb executable
 name (`gud-pdb-command-name') and the file to be debugged.
@@ -1697,7 +1696,7 @@ directory and source-file directory for your debugger."
    (list (gud-query-cmdline 'pdb)))
 
   (gud-common-init command-line nil 'gud-pdb-marker-filter)
-  (set (make-local-variable 'gud-minor-mode) 'pdb)
+  (setq-local gud-minor-mode 'pdb)
 
   (gud-def gud-break  "break %d%f:%l"  "\C-b" "Set breakpoint at current line.")
   (gud-def gud-remove "clear %d%f:%l"  "\C-d" "Remove breakpoint at current line")
@@ -1846,7 +1845,7 @@ and source-file directory for your debugger."
 ;; JDB command will get out of the debugger.  There is some truly
 ;; pathetic JDB documentation available at:
 ;;
-;;     http://java.sun.com/products/jdk/1.1/debugging/
+;;     https://java.sun.com/products/jdk/1.1/debugging/
 ;;
 ;; KNOWN PROBLEMS AND FIXME's:
 ;;
@@ -2359,17 +2358,17 @@ during jdb initialization depending on the value of
 		(if (< n gud-jdb-lowest-stack-level)
 		    (progn (setq gud-jdb-lowest-stack-level n) t)))
 	    t)
-	  (if (setq file-found
-		    (gud-jdb-find-source (match-string 2 gud-marker-acc)))
-	      (setq gud-last-frame
-		    (cons file-found
-			  (string-to-number
-			   (let
-                               ((numstr (match-string 4 gud-marker-acc)))
-                             (if (string-match "[.,]" numstr)
-                                 (replace-match "" nil nil numstr)
-                               numstr)))))
-	    (message "Could not find source file.")))
+	  (let ((class (match-string 2 gud-marker-acc)))
+	    (if (setq file-found (gud-jdb-find-source class))
+	        (setq gud-last-frame
+		      (cons file-found
+			    (string-to-number
+			     (let
+                                 ((numstr (match-string 4 gud-marker-acc)))
+                               (if (string-match "[.,]" numstr)
+                                   (replace-match "" nil nil numstr)
+                                 numstr)))))
+	      (message "Could not find source file for %s" class))))
 
       ;; Set the accumulator to the remaining text.
       (setq gud-marker-acc (substring gud-marker-acc (match-end 0))))
@@ -2419,7 +2418,7 @@ gud, see `gud-mode'."
 
   (gud-common-init command-line 'gud-jdb-massage-args
 		   'gud-jdb-marker-filter)
-  (set (make-local-variable 'gud-minor-mode) 'jdb)
+  (setq-local gud-minor-mode 'jdb)
 
   ;; If a -classpath option was provided, set gud-jdb-classpath
   (if gud-jdb-classpath-string
@@ -2567,17 +2566,21 @@ You may use the `gud-def' macro in the initialization hook to define other
 commands.
 
 Other commands for interacting with the debugger process are inherited from
-comint mode, which see."
+`comint-mode', which see.
+
+Commands:
+
+\\{gud-mode-map}"
   (setq mode-line-process '(":%s"))
   (define-key (current-local-map) "\C-c\C-l" 'gud-refresh)
-  (set (make-local-variable 'gud-last-frame) nil)
+  (setq-local gud-last-frame nil)
   (if (boundp 'tool-bar-map)            ; not --without-x
       (setq-local tool-bar-map gud-tool-bar-map))
   (make-local-variable 'comint-prompt-regexp)
   ;; Don't put repeated commands in command history many times.
-  (set (make-local-variable 'comint-input-ignoredups) t)
+  (setq-local comint-input-ignoredups t)
   (make-local-variable 'paragraph-start)
-  (set (make-local-variable 'gud-delete-prompt-marker) (make-marker))
+  (setq-local gud-delete-prompt-marker (make-marker))
   (add-hook 'kill-buffer-hook 'gud-kill-buffer-hook nil t))
 
 (defcustom gud-chdir-before-run t
@@ -2650,10 +2653,10 @@ comint mode, which see."
 	   (if massage-args (funcall massage-args file args) args))
     ;; Since comint clobbered the mode, we don't set it until now.
     (gud-mode)
-    (set (make-local-variable 'gud-target-name)
+    (setq-local gud-target-name
 	 (and file-word (file-name-nondirectory file))))
-  (set (make-local-variable 'gud-marker-filter) marker-filter)
-  (if find-file (set (make-local-variable 'gud-find-file) find-file))
+  (setq-local gud-marker-filter marker-filter)
+  (if find-file (setq-local gud-find-file find-file))
   (setq gud-last-last-frame nil)
 
   (set-process-filter (get-buffer-process (current-buffer)) 'gud-filter)
@@ -2827,9 +2830,13 @@ Obeying it means displaying in another window the specified file and line."
 	 (buffer
 	  (with-current-buffer gud-comint-buffer
 	    (gud-find-file true-file)))
-	 (window (and buffer
-		      (or (get-buffer-window buffer)
-			  (display-buffer buffer '(nil (inhibit-same-window . t))))))
+	 (window
+          (when buffer
+            (if (eq gud-minor-mode 'gdbmi)
+                (gdb-display-source-buffer buffer)
+              ;; Gud still has the old behavior.
+              (or (get-buffer-window buffer)
+                  (display-buffer buffer '(nil (inhibit-same-window . t)))))))
 	 (pos))
     (when buffer
       (with-current-buffer buffer
@@ -2859,9 +2866,7 @@ Obeying it means displaying in another window the specified file and line."
 	       (widen)
 	       (goto-char pos))))
       (when window
-	(set-window-point window gud-overlay-arrow-position)
-	(if (eq gud-minor-mode 'gdbmi)
-	    (setq gdb-source-window window))))))
+	(set-window-point window gud-overlay-arrow-position)))))
 
 ;; The gud-call function must do the right thing whether its invoking
 ;; keystroke is from the GUD buffer itself (via major-mode binding)
@@ -3347,23 +3352,23 @@ Treats actions as defuns."
 ;;;###autoload
 (define-derived-mode gdb-script-mode prog-mode "GDB-Script"
   "Major mode for editing GDB scripts."
-  (set (make-local-variable 'comment-start) "#")
-  (set (make-local-variable 'comment-start-skip) "#+\\s-*")
-  (set (make-local-variable 'outline-regexp) "[ \t]")
-  (set (make-local-variable 'imenu-generic-expression)
-       '((nil "^define[ \t]+\\(\\w+\\)" 1)))
-  (set (make-local-variable 'indent-line-function) 'gdb-script-indent-line)
-  (set (make-local-variable 'beginning-of-defun-function)
-       #'gdb-script-beginning-of-defun)
-  (set (make-local-variable 'end-of-defun-function)
-       #'gdb-script-end-of-defun)
-  (set (make-local-variable 'font-lock-defaults)
-       '(gdb-script-font-lock-keywords nil nil ((?_ . "w")) nil
-	 (font-lock-syntactic-face-function
-	  . gdb-script-font-lock-syntactic-face)))
+  (setq-local comment-start "#")
+  (setq-local comment-start-skip "#+\\s-*")
+  (setq-local outline-regexp "[ \t]")
+  (setq-local imenu-generic-expression
+              '((nil "^define[ \t]+\\(\\w+\\)" 1)))
+  (setq-local indent-line-function 'gdb-script-indent-line)
+  (setq-local beginning-of-defun-function
+              #'gdb-script-beginning-of-defun)
+  (setq-local end-of-defun-function
+              #'gdb-script-end-of-defun)
+  (setq-local font-lock-defaults
+              '(gdb-script-font-lock-keywords nil nil ((?_ . "w")) nil
+                (font-lock-syntactic-face-function
+                 . gdb-script-font-lock-syntactic-face)))
   ;; Recognize docstrings.
-  (set (make-local-variable 'syntax-propertize-function)
-       gdb-script-syntax-propertize-function)
+  (setq-local syntax-propertize-function
+              gdb-script-syntax-propertize-function)
   (add-hook 'syntax-propertize-extend-region-functions
             #'syntax-propertize-multiline 'append 'local))
 
@@ -3470,8 +3475,8 @@ only tooltips in the buffer containing the overlay arrow."
 ACTIVATEP non-nil means activate mouse motion events."
   (if activatep
       (progn
-        (set (make-local-variable 'gud-tooltip-mouse-motions-active) t)
-        (set (make-local-variable 'track-mouse) t))
+        (setq-local gud-tooltip-mouse-motions-active t)
+        (setq-local track-mouse t))
     (when gud-tooltip-mouse-motions-active
       (kill-local-variable 'gud-tooltip-mouse-motions-active)
       (kill-local-variable 'track-mouse))))

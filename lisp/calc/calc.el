@@ -266,18 +266,18 @@
     (sgml-mode    . "<!-- Embed -->\n\\(<!-- .* -->\n\\)*")
     (xml-mode     . "<!-- Embed -->\n\\(<!-- .* -->\n\\)*")
     (texinfo-mode . "@c Embed\n\\(@c .*\n\\)*"))
-  "Alist of major modes with appropriate values for `calc-embedded-announce-formula'."
+  "Alist of major modes for `calc-embedded-announce-formula'."
   :type '(alist :key-type (symbol :tag "Major mode")
                 :value-type (regexp :tag "Regexp to announce formula")))
 
 (defcustom calc-embedded-open-formula
   "\\`\\|^\n\\|\\$\\$?\\|\\\\\\[\\|^\\\\begin[^{].*\n\\|^\\\\begin{.*[^x]}.*\n\\|^@.*\n\\|^\\.EQ.*\n\\|\\\\(\\|^%\n\\|^\\.\\\\\"\n"
-  "A regular expression for the opening delimiter of a formula used by calc-embedded."
+  "Regexp for the opening delimiter of a formula used by `calc-embedded'."
   :type '(regexp))
 
 (defcustom calc-embedded-close-formula
   "\\'\\|\n$\\|\\$\\$?\\|\\\\]\\|^\\\\end[^{].*\n\\|^\\\\end{.*[^x]}.*\n\\|^@.*\n\\|^\\.EN.*\n\\|\\\\)\\|\n%\n\\|^\\.\\\\\"\n"
-  "A regular expression for the closing delimiter of a formula used by calc-embedded."
+  "Regexp for the closing delimiter of a formula used by calc-embedded."
   :type '(regexp))
 
 (defcustom calc-embedded-open-close-formula-alist
@@ -506,7 +506,7 @@ The variable VAR will be added to `calc-mode-var-list'."
 
 (defun calc-mode-var-list-restore-default-values ()
   "Restore the default values of the variables in `calc-mode-var-list'."
-  (mapcar (function (lambda (v) (set (car v) (nth 1 v))))
+  (mapcar (lambda (v) (set (car v) (nth 1 v)))
           calc-mode-var-list))
 
 (defun calc-mode-var-list-restore-saved-values ()
@@ -535,7 +535,7 @@ The variable VAR will be added to `calc-mode-var-list'."
                             newvarlist)))
               (setq varlist (cdr varlist)))))))
     (if newvarlist
-        (mapcar (function (lambda (v) (set (car v) (nth 1 v))))
+        (mapcar (lambda (v) (set (car v) (nth 1 v)))
                 newvarlist)
       (calc-mode-var-list-restore-default-values))))
 
@@ -721,7 +721,8 @@ If nil, computations on numbers always yield numbers where possible.")
 (defcalcmodevar calc-matrix-mode nil
   "If `matrix', variables are assumed to be matrix-valued.
 If a number, variables are assumed to be NxN matrices.
-If `sqmatrix', variables are assumed to be square matrices of an unspecified size.
+If `sqmatrix', variables are assumed to be square matrices of an
+  unspecified size.
 If `scalar', variables are assumed to be scalar-valued.
 If nil, symbolic math routines make no assumptions about variables.")
 
@@ -884,6 +885,8 @@ Used by `calc-user-invocation'.")
 
 (defvar calc-load-hook nil
   "Hook run when calc.el is loaded.")
+(make-obsolete-variable 'calc-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defvar calc-window-hook nil
   "Hook called to create the Calc window.")
@@ -1085,8 +1088,18 @@ Used by `calc-user-invocation'.")
 	  (append (where-is-internal 'delete-backward-char global-map)
 		  (where-is-internal 'backward-delete-char global-map)
 		  (where-is-internal 'backward-delete-char-untabify global-map)
-		  '("\C-d"))
-	'("\177" "\C-d")))
+		  '("\177"))
+	'("\177")))
+
+(mapc (lambda (x)
+        (ignore-errors
+          (define-key calc-digit-map x 'calcDigit-delchar)
+          (define-key calc-mode-map x 'calc-pop)
+          (define-key calc-mode-map (vconcat "\e" x) 'calc-pop-above)))
+      (if calc-scan-for-dels
+          (append (where-is-internal 'delete-forward-char global-map)
+                  '("\C-d"))
+        '("\C-d")))
 
 (defvar calc-dispatch-map
   (let ((map (make-keymap)))
@@ -1295,8 +1308,9 @@ Notations:  3.14e6     3.14 * 10^6
 \\{calc-mode-map}
 "
   (interactive)
-  (mapc (function           ;FIXME: Why (set-default v (symbol-value v)) ?!?!?
-	 (lambda (v) (set-default v (symbol-value v))))
+  (mapc (lambda (v)
+          ;; FIXME: Why (set-default v (symbol-value v)) ?!?!?
+          (set-default v (symbol-value v)))
         calc-local-var-list)
   (kill-all-local-variables)
   (use-local-map (if (eq calc-algebraic-mode 'total)
@@ -1362,6 +1376,29 @@ Notations:  3.14e6     3.14 * 10^6
     (set-keymap-parent map calc-mode-map)
     map))
 
+(defun calc--header-line (long short width &optional fudge)
+  "Return a Calc header line appropriate for the buffer width.
+
+LONG is a desired text for a wide window, SHORT is a desired
+abbreviated text, and width is the buffer width, which will be
+some fraction of the 'parent' window width (At the time of
+writing, 2/3 for calc, 1/3 for trail). The optional FUDGE is a
+trial-and-error adjustment number for the edge-cases at the
+border of the two cases."
+  ;; TODO: This could be called as part of a 'window-resize' hook.
+  (setq header-line-format
+        (let* ((len-long (length long))
+               (len-short (length short))
+               (fudge (or fudge 0))
+               ;; fudge for trail is: -3 (added to len-long)
+               ;; (width  ) for trail
+               (factor (if (> width (+ len-long fudge)) len-long len-short))
+               (size   (max (/ (- width factor) 2) 0))
+               (fill (make-string size ?-))
+               (pre  (replace-regexp-in-string ".$" " " fill))
+               (post (replace-regexp-in-string "^." " " fill)))
+          (concat pre (if (= factor len-long) long short) post))))
+
 (define-derived-mode calc-trail-mode fundamental-mode "Calc Trail"
   "Calc Trail mode.
 This mode is used by the *Calc Trail* buffer, which records all results
@@ -1376,9 +1413,9 @@ commands given here will actually operate on the *Calculator* stack."
   (setq buffer-read-only t)
   (make-local-variable 'overlay-arrow-position)
   (make-local-variable 'overlay-arrow-string)
-  (when (= (buffer-size) 0)
-    (let ((inhibit-read-only t))
-      (insert (propertize "Emacs Calculator Trail\n" 'face 'italic)))))
+  (when calc-show-banner
+    (calc--header-line "Emacs Calculator Trail" "Calc Trail"
+                       (/ (window-width) 3) -3)))
 
 (defun calc-create-buffer ()
   "Create and initialize a buffer for the Calculator."
@@ -1391,6 +1428,12 @@ commands given here will actually operate on the *Calculator* stack."
   (when calc-language
     (require 'calc-ext)
     (calc-set-language calc-language calc-language-option t)))
+
+(defcustom calc-make-windows-dedicated t
+  "If non-nil, windows displaying Calc buffers will be marked dedicated.
+See `window-dedicated-p' for what that means."
+  :version "28.1"
+  :type 'boolean)
 
 ;;;###autoload
 (defun calc (&optional arg full-display interactive)
@@ -1431,13 +1474,14 @@ commands given here will actually operate on the *Calculator* stack."
                 (pop-to-buffer (current-buffer)))))))
       (with-current-buffer (calc-trail-buffer)
         (and calc-display-trail
-             (= (window-width) (frame-width))
              (calc-trail-display 1 t)))
       (message "Welcome to the GNU Emacs Calculator!  Press `?' or `h' for help, `q' to quit")
       (run-hooks 'calc-start-hook)
       (and (windowp full-display)
            (window-point full-display)
            (select-window full-display))
+      (and calc-make-windows-dedicated
+           (set-window-dedicated-p nil t))
       (calc-check-defines)
       (when (and calc-said-hello interactive)
         (sit-for 2)
@@ -1487,7 +1531,7 @@ commands given here will actually operate on the *Calculator* stack."
             (let ((tail (nthcdr (1- calc-undo-length) calc-undo-list)))
               (if tail (setcdr tail nil)))
             (setq calc-redo-list nil))))
-      (mapc (function (lambda (v) (set-default v (symbol-value v))))
+      (mapc (lambda (v) (set-default v (symbol-value v)))
 	    calc-local-var-list)
       (let ((buf (current-buffer))
             (win (get-buffer-window (current-buffer)))
@@ -1966,13 +2010,11 @@ See calc-keypad for details."
 	      (calc-any-evaltos nil))
 	 (setq calc-any-selections nil)
 	 (erase-buffer)
-	 (when calc-show-banner
-	   (insert (propertize "--- Emacs Calculator Mode ---\n"
-			       'face 'italic)))
+         (when calc-show-banner
+           (calc--header-line  "Emacs Calculator Mode" "Emacs Calc"
+                       (* 2 (/ (window-width) 3)) -3))
 	 (while thing
 	   (goto-char (point-min))
-	   (when calc-show-banner
-	     (forward-line 1))
 	   (insert (math-format-stack-value (car thing)) "\n")
 	   (setq thing (cdr thing)))
 	 (calc-renumber-stack)
@@ -2051,12 +2093,11 @@ the United States."
 	   (set-buffer calc-trail-buffer)
 	   (unless (derived-mode-p 'calc-trail-mode)
              (calc-trail-mode)
-             (set (make-local-variable 'calc-main-buffer) buf)))))
+             (setq-local calc-main-buffer buf)))))
   (or (and calc-trail-pointer
 	   (eq (marker-buffer calc-trail-pointer) calc-trail-buffer))
       (with-current-buffer calc-trail-buffer
 	(goto-char (point-min))
-	(forward-line 1)
 	(setq calc-trail-pointer (point-marker))))
   calc-trail-buffer)
 
@@ -2101,7 +2142,9 @@ the United States."
               (if calc-trail-window-hook
                   (run-hooks 'calc-trail-window-hook)
                 (let ((w (split-window nil (/ (* (window-width) 2) 3) t)))
-                  (set-window-buffer w calc-trail-buffer)))
+                  (set-window-buffer w calc-trail-buffer)
+                  (and calc-make-windows-dedicated
+                       (set-window-dedicated-p w t))))
               (calc-wrapper
                (setq overlay-arrow-string calc-trail-overlay
                      overlay-arrow-position calc-trail-pointer)
@@ -2124,10 +2167,8 @@ the United States."
   (if (derived-mode-p 'calc-trail-mode)
       (progn
 	(beginning-of-line)
-	(if (bobp)
-	    (forward-line 1)
-	  (if (eobp)
-	      (forward-line -1)))
+	(if (eobp)
+            (forward-line -1))
 	(if (or (bobp) (eobp))
 	    (setq overlay-arrow-position nil)   ; trail is empty
 	  (set-marker calc-trail-pointer (point) (current-buffer))
@@ -2141,7 +2182,7 @@ the United States."
 	    (if win
 		(save-excursion
 		  (forward-line (/ (window-height win) 2))
-		  (forward-line (- 1 (window-height win)))
+		  (forward-line (- 2 (window-height win)))
 		  (set-window-start win (point))
 		  (set-window-point win (+ calc-trail-pointer 4))
 		  (set-buffer calc-main-buffer)
@@ -2276,7 +2317,7 @@ the United States."
         ((eq last-command-event ?@) "0@ ")
         (t (char-to-string last-command-event))))
 
-(defvar calc-buffer)
+(defvar calc-buffer nil)
 (defvar calc-prev-char)
 (defvar calc-prev-prev-char)
 (defvar calc-digit-value)
@@ -2316,7 +2357,7 @@ the United States."
 (defun calcDigit-nondigit ()
   (interactive)
   ;; Exercise for the reader:  Figure out why this is a good precaution!
-  (or (boundp 'calc-buffer)
+  (or calc-buffer
       (use-local-map minibuffer-local-map))
   (let ((str (minibuffer-contents)))
     (setq calc-digit-value (with-current-buffer calc-buffer
@@ -2341,7 +2382,6 @@ the United States."
 
 (defun calcDigit-key ()
   (interactive)
-  (goto-char (point-max))
   (if (or (and (memq last-command-event '(?+ ?-))
 	       (> (buffer-size) 0)
 	       (/= (preceding-char) ?e))
@@ -2384,8 +2424,7 @@ the United States."
 	    (delete-char 1))
 	(if (looking-at "-")
 	    (delete-char 1)
-	  (insert "-")))
-      (goto-char (point-max)))
+	  (insert "-"))))
      ((eq last-command-event ?p)
       (if (or (calc-minibuffer-contains ".*\\+/-.*")
 	      (calc-minibuffer-contains ".*mod.*")
@@ -2427,7 +2466,7 @@ the United States."
 	  (if (and (memq last-command-event '(?@ ?o ?h ?\' ?m))
 		   (string-match " " calc-hms-format))
 	      (insert " "))
-	(if (and (eq this-command last-command)
+	(if (and (memq last-command '(calcDigit-start calcDigit-key))
 		 (eq last-command-event ?.))
 	    (progn
 	      (require 'calc-ext)
@@ -2438,17 +2477,9 @@ the United States."
   (setq calc-prev-prev-char calc-prev-char
 	calc-prev-char last-command-event))
 
-
 (defun calcDigit-backspace ()
   (interactive)
-  (goto-char (point-max))
-  (cond ((calc-minibuffer-contains ".* \\+/- \\'")
-	 (backward-delete-char 5))
-	((calc-minibuffer-contains ".* mod \\'")
-	 (backward-delete-char 5))
-	((calc-minibuffer-contains ".* \\'")
-	 (backward-delete-char 2))
-	((eq last-command 'calcDigit-start)
+  (cond ((eq last-command 'calcDigit-start)
 	 (erase-buffer))
 	(t (backward-delete-char 1)))
   (if (= (calc-minibuffer-size) 0)
@@ -2923,6 +2954,20 @@ the United States."
 		     (- (- (nth 2 a) (nth 2 b)) ldiff))))
 
 
+(defun calcDigit-delchar ()
+  (interactive)
+  (cond ((looking-at-p " \\+/- \\'")
+         (delete-char 5))
+	((looking-at-p " mod \\'")
+	 (delete-char 5))
+	((looking-at-p " \\'")
+	 (delete-char 2))
+	((eq last-command 'calcDigit-start)
+	 (erase-buffer))
+	(t (unless (eobp) (delete-char 1))))
+  (when (= (calc-minibuffer-size) 0)
+    (setq last-command-event 13)
+    (calcDigit-nondigit)))
 
 
 (defvar math-comp-selected)
@@ -3411,12 +3456,10 @@ See Info node `(calc)Defining Functions'."
 (defun calc-clear-unread-commands ()
   (setq unread-command-events nil))
 
-(defcalcmodevar math-2-word-size
-  (math-read-number-simple "4294967296")
+(defcalcmodevar math-2-word-size 4294967296
   "Two to the power of `calc-word-size'.")
 
-(defcalcmodevar math-half-2-word-size
-  (math-read-number-simple "2147483648")
+(defcalcmodevar math-half-2-word-size 2147483648
   "One-half of two to the power of `calc-word-size'.")
 
 (when calc-always-load-extensions

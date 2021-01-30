@@ -52,7 +52,7 @@
   ;; caused false positives.  --Stef
   (let ((skip "back[- ]?port\\|cherry picked from commit\\|\
 \\(do\\( no\\|n['’]\\)t\\|no need to\\) merge\\|not to be merged\\|\
-bump \\(Emacs \\)?version\\|Auto-commit"))
+bump Emacs version\\|Auto-commit"))
     (if noninteractive skip
       ;; "Regenerate" is quite prone to false positives.
       ;; We only want to skip merging things like AUTHORS and ldefs-boot.
@@ -354,7 +354,7 @@ Returns non-nil if conflicts remain."
                   ;; The conflict markers remain so we return non-nil.
                   (message "Failed to fix NEWS conflict"))))
              ;; Generated files.
-             ((member file '("lisp/ldefs-boot.el"))
+             ((member file '("lisp/ldefs-boot.el" "etc/AUTHORS"))
               ;; We are in the file's buffer, so names are relative.
               (call-process "git" nil t nil "reset" "--"
                             (file-name-nondirectory file))

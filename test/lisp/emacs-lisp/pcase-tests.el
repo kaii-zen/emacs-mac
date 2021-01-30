@@ -1,4 +1,4 @@
-;;; pcase-tests.el --- Test suite for pcase macro.
+;;; pcase-tests.el --- Test suite for pcase macro.  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2012-2021 Free Software Foundation, Inc.
 
@@ -31,6 +31,10 @@
 (ert-deftest pcase-tests-bugs ()
   (should (equal (pcase '(2 . 3)        ;bug#18554
                    (`(,hd . ,(and (pred atom) tl)) (list hd tl))
+                   ((pred consp) nil))
+                 '(2 3)))
+  (should (equal (pcase '(2 . 3)
+                   (`(,hd . ,(and (pred (not consp)) tl)) (list hd tl))
                    ((pred consp) nil))
                  '(2 3))))
 

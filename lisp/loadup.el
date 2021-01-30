@@ -57,7 +57,7 @@
 ;; bidi.c needs for its job.
 (setq redisplay--inhibit-bidi t)
 
-(message "dump mode: %s" dump-mode)
+(message "Dump mode: %s" dump-mode)
 
 ;; Add subdirectories to the load-path for files that might get
 ;; autoloaded when bootstrapping or running Emacs normally.
@@ -170,7 +170,6 @@
 (load "cus-face")
 (load "faces")  ; after here, `defface' may be used.
 
-(load "button")
 
 ;; We don't want to store loaddefs.el in the repository because it is
 ;; a generated file; but it is required in order to compile the lisp files.
@@ -193,6 +192,7 @@
            definition-prefixes)
   (setq definition-prefixes new))
 
+(load "button")                  ;After loaddefs, because of define-minor-mode!
 (load "emacs-lisp/nadvice")
 (load "emacs-lisp/cl-preloaded")
 (load "obarray")        ;abbrev.el is implemented in terms of obarrays.
@@ -355,6 +355,7 @@
 (load "cus-start") ;Late to reduce customize-rogue (needs loaddefs.el anyway)
 (if (not (eq system-type 'ms-dos))
     (load "tooltip"))
+(load "international/iso-transl") ; Binds Alt-[ and friends.
 
 ;; This file doesn't exist when building a development version of Emacs
 ;; from the repository.  It is generated just after temacs is built.
@@ -453,6 +454,34 @@ lost after dumping")))
 ;; At this point, we're ready to resume undo recording for scratch.
 (buffer-enable-undo "*scratch*")
 
+(when (featurep 'nativecomp)
+  ;; Fix the compilation unit filename to have it working when
+  ;; when installed or if the source directory got moved.  This is set to be
+  ;; a pair in the form: (rel-path-from-install-bin . rel-path-from-local-bin).
+  (let ((h (make-hash-table :test #'eq))
+        (bin-dest-dir (cadr (member "--bin-dest" command-line-args)))
+        (eln-dest-dir (cadr (member "--eln-dest" command-line-args))))
+    (when (and bin-dest-dir eln-dest-dir)
+      (setq eln-dest-dir
+            (concat eln-dest-dir "native-lisp/" comp-native-version-dir "/"))
+      (mapatoms (lambda (s)
+                  (let ((f (symbol-function s)))
+                    (when (subr-native-elisp-p f)
+                      (puthash (subr-native-comp-unit f) nil h)))))
+      (maphash (lambda (cu _)
+                 (native-comp-unit-set-file
+                  cu
+	          (cons
+                   ;; Relative path from the installed binary.
+                   (file-relative-name (concat eln-dest-dir
+                                               (file-name-nondirectory
+                                                (native-comp-unit-file cu)))
+                                       bin-dest-dir)
+                   ;; Relative path from the built uninstalled binary.
+                   (file-relative-name (native-comp-unit-file cu)
+                                       invocation-directory))))
+	       h))))
+
 (when (hash-table-p purify-flag)
   (let ((strings 0)
         (vectors 0)
@@ -486,6 +515,11 @@ lost after dumping")))
                         ((equal dump-mode "bootstrap") "emacs")
                         ((equal dump-mode "pbootstrap") "bootstrap-emacs.pdmp")
                         (t (error "unrecognized dump mode %s" dump-mode)))))
+      (when (and (featurep 'nativecomp)
+                 (equal dump-mode "pdump"))
+        ;; Don't enable this before bootstrap is completed the as the
+        ;; compiler infrastructure may not be usable.
+        (setq comp-enable-subr-trampolines t))
       (message "Dumping under the name %s" output)
       (condition-case ()
           (delete-file output)
@@ -542,6 +576,7 @@ lost after dumping")))
 ;; Don't keep `load-file-name' set during the top-level session!
 ;; Otherwise, it breaks a lot of code which does things like
 ;; (or load-file-name byte-compile-current-file).
+(setq load-true-file-name nil)
 (setq load-file-name nil)
 (eval top-level)
 

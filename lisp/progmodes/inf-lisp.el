@@ -124,15 +124,14 @@ mode.  Default is whitespace followed by 0 or 1 single-letter colon-keyword
 (define-key lisp-mode-map "\C-c\C-v" 'lisp-show-variable-documentation)
 
 
-;;; This function exists for backwards compatibility.
-;;; Previous versions of this package bound commands to C-c <letter>
-;;; bindings, which is not allowed by the Emacs standard.
+;; This function exists for backwards compatibility.
+;; Previous versions of this package bound commands to C-c <letter>
+;; bindings, which is not allowed by the Emacs standard.
 
 ;;;  "This function binds many inferior-lisp commands to C-c <letter> bindings,
 ;;;where they are more accessible. C-c <letter> bindings are reserved for the
-;;;user, so these bindings are non-standard. If you want them, you should
-;;;have this function called by the inferior-lisp-load-hook:
-;;;  (add-hook 'inferior-lisp-load-hook 'inferior-lisp-install-letter-bindings)
+;;;user, so these bindings are non-standard. If you want them:
+;;;  (with-eval-after-load 'inf-lisp 'inferior-lisp-install-letter-bindings)
 ;;;You can modify this function to install just the bindings you want."
 (defun inferior-lisp-install-letter-bindings ()
   (define-key lisp-mode-map "\C-ce" 'lisp-eval-defun-and-go)
@@ -275,7 +274,8 @@ If you accidentally suspend your process, use \\[comint-continue-subjob]
 to continue it."
   (setq comint-prompt-regexp inferior-lisp-prompt)
   (setq mode-line-process '(":%s"))
-  (lisp-mode-variables t)
+  (lisp-mode-variables)
+  (set-syntax-table lisp-mode-syntax-table)
   (setq comint-get-old-input (function lisp-get-old-input))
   (setq comint-input-filter (function lisp-input-filter)))
 
@@ -555,10 +555,7 @@ Used by these commands to determine defaults."
 
 ;;; Reads a string from the user.
 (defun lisp-symprompt (prompt default)
-  (list (let* ((prompt (if default
-			   (format "%s (default %s): " prompt default)
-			 (concat prompt ": ")))
-	       (ans (read-string prompt)))
+  (list (let ((ans (read-string (format-prompt prompt default))))
 	  (if (zerop (length ans)) default ans))))
 
 
@@ -632,6 +629,8 @@ See variable `lisp-describe-sym-command'."
 ;;;===============================
 (defvar inferior-lisp-load-hook nil
   "This hook is run when the library `inf-lisp' is loaded.")
+(make-obsolete-variable 'inferior-lisp-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (run-hooks 'inferior-lisp-load-hook)
 
