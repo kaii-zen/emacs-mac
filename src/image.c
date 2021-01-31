@@ -1527,7 +1527,7 @@ prepare_image_for_display (struct frame *f, struct image *img)
       if (img->cg_image == NULL)
 	{
 	  img->load_failed_p = 1;
-	  img->type->free (f, img);
+	  img->type->free_img (f, img);
 	}
     }
 #endif
@@ -8457,7 +8457,6 @@ png_load (struct frame *f, struct image *img)
 
 
 #endif /* HAVE_NS */
-#endif /* HAVE_PNG */
 
 
 
@@ -11500,6 +11499,9 @@ mac_svg_set_size_2x (gint *width, gint *height, gpointer user_data)
 {
   *width *= 2;
   *height *= 2;
+}
+#endif
+
 #if LIBRSVG_CHECK_VERSION (2, 46, 0)
 static double
 svg_css_length_to_pixels (RsvgLength length, double dpi)

@@ -1888,8 +1888,8 @@ mac_draw_glyph_string_box (struct glyph_string *s)
   else
     {
       mac_setup_relief_colors (s);
-      mac_draw_relief_rect (s->f, left_x, top_y, right_x, bottom_y,
-			    hwidth, raised_p, true, true, left_p, right_p,
+      mac_draw_relief_rect (s->f, left_x, top_y, right_x, bottom_y, hwidth,
+			    vwidth, raised_p, true, true, left_p, right_p,
 			    &clip_rect);
     }
 }
@@ -4196,6 +4196,7 @@ mac_handle_visibility_change (struct frame *f)
 	  buf.arg = Qnil;
 	  kbd_buffer_store_event (&buf);
 	}
+  }
   else if (FRAME_VISIBLE_P (f) && !visible)
     if (iconified)
       {
@@ -4988,7 +4989,7 @@ mac_store_buffer_text_to_unicode_chars (struct buffer *buf, EMACS_INT start,
 	  unsigned char *ptr = BUF_BYTE_ADDRESS (BUF, BYTEIDX);	\
 	  int len;						\
 								\
-	  OUTPUT= STRING_CHAR_AND_LENGTH (ptr, len);		\
+	  OUTPUT= string_char_and_length (ptr, &len);		\
 	  BYTEIDX += len;					\
 	}							\
       else							\
