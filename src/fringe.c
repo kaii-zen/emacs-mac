@@ -23,7 +23,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "lisp.h"
 #include "frame.h"
-#include "ptr-bounds.h"
 #include "window.h"
 #include "dispextern.h"
 #include "buffer.h"
@@ -101,7 +100,7 @@ struct fringe_bitmap
   ...xx...
 */
 static unsigned short question_mark_bits[] = {
-  0x3c, 0x7e, 0x7e, 0x0c, 0x18, 0x18, 0x00, 0x18, 0x18};
+  0x3c, 0x7e, 0xc3, 0xc3, 0x0c, 0x18, 0x18, 0x00, 0x18, 0x18};
 
 /* An exclamation mark.  */
 /*
@@ -117,7 +116,7 @@ static unsigned short question_mark_bits[] = {
   ...XX...
 */
 static unsigned short exclamation_mark_bits[] = {
-  0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18};
+  0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x18};
 
 /* An arrow like this: `<-'.  */
 /*
@@ -1609,9 +1608,7 @@ If BITMAP already exists, the existing definition is replaced.  */)
   fb.dynamic = true;
 
   xfb = xmalloc (sizeof fb + fb.height * BYTES_PER_BITMAP_ROW);
-  fb.bits = b = ((unsigned short *)
-		 ptr_bounds_clip (xfb + 1, fb.height * BYTES_PER_BITMAP_ROW));
-  xfb = ptr_bounds_clip (xfb, sizeof *xfb);
+  fb.bits = b = (unsigned short *) (xfb + 1);
 
   j = 0;
   while (j < fb.height)
@@ -1677,10 +1674,10 @@ Return nil if POS is not visible in WINDOW.  */)
 
   if (!NILP (pos))
     {
-      CHECK_FIXNUM_COERCE_MARKER (pos);
-      if (! (BEGV <= XFIXNUM (pos) && XFIXNUM (pos) <= ZV))
+      EMACS_INT p = fix_position (pos);
+      if (! (BEGV <= p && p <= ZV))
 	args_out_of_range (window, pos);
-      textpos = XFIXNUM (pos);
+      textpos = p;
     }
   else if (w == XWINDOW (selected_window))
     textpos = PT;
@@ -1738,11 +1735,7 @@ If nil, also continue lines which are exactly as wide as the window.  */);
 void
 mark_fringe_data (void)
 {
-  int i;
-
-  for (i = 0; i < max_fringe_bitmaps; i++)
-    if (!NILP (fringe_faces[i]))
-      mark_object (fringe_faces[i]);
+  mark_objects (fringe_faces, max_fringe_bitmaps);
 }
 
 /* Initialize this module when Emacs starts.  */

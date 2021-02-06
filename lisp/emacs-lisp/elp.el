@@ -110,8 +110,7 @@
 ;; Boy Jim's profiler.el. Both were written for Emacs 18 and both were
 ;; pretty good first shots at profiling, but I found that they didn't
 ;; provide the functionality or interface that I wanted, so I wrote
-;; this.  I've tested elp in XEmacs 19 and Emacs 19.  There's no point
-;; in even trying to make this work with Emacs 18.
+;; this.
 
 ;; Unlike previous profilers, elp uses Emacs 19's built-in function
 ;; current-time to return interval times.  This obviates the need for
@@ -342,9 +341,9 @@ Use optional LIST if provided instead."
   (interactive
    (list
     (intern
-     (completing-read "Master function: " obarray
-                      #'elp--instrumented-p
-                      t nil nil (if elp-master (symbol-name elp-master))))))
+     (let ((default (if elp-master (symbol-name elp-master))))
+       (completing-read (format-prompt "Master function" default)
+                        obarray #'elp--instrumented-p t nil nil default)))))
   ;; When there's a master function, recording is turned off by default.
   (setq elp-master funsym
 	elp-record-p nil)

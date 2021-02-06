@@ -83,7 +83,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "charset.h"
 #include "composite.h"
 #include "dispextern.h"
-#include "ptr-bounds.h"
 #include "regex-emacs.h"
 #include "sheap.h"
 #include "syntax.h"
@@ -388,7 +387,14 @@ terminate_due_to_signal (int sig, int backtrace_limit)
 
           totally_unblock_input ();
           if (sig == SIGTERM || sig == SIGHUP || sig == SIGINT)
-            Fkill_emacs (make_fixnum (sig));
+	    {
+	      /* Avoid abort in shut_down_emacs if we were interrupted
+		 by SIGINT in noninteractive usage, as in that case we
+		 don't care about the message stack.  */
+	      if (sig == SIGINT && noninteractive)
+		clear_message_stack ();
+	      Fkill_emacs (make_fixnum (sig));
+	    }
 
           shut_down_emacs (sig, Qnil);
           emacs_backtrace (backtrace_limit);
@@ -959,7 +965,6 @@ emacs_main (int argc, char **argv)
      for pointers.  */
   void *stack_bottom_variable;
 
-  bool do_initial_setlocale;
   bool no_loadup = false;
   char *junk = 0;
   char *dname_arg = 0;
@@ -1264,19 +1269,21 @@ emacs_main (int argc, char **argv)
   set_binary_mode (STDOUT_FILENO, O_BINARY);
 #endif /* MSDOS */
 
-  /* Skip initial setlocale if LC_ALL is "C", as it's not needed in that case.
-     The build procedure uses this while dumping, to ensure that the
-     dumped Emacs does not have its system locale tables initialized,
-     as that might cause screwups when the dumped Emacs starts up.  */
-  {
-    char *lc_all = getenv ("LC_ALL");
-    do_initial_setlocale = ! lc_all || strcmp (lc_all, "C");
-  }
-
-  /* Set locale now, so that initial error messages are localized properly.
-     fixup_locale must wait until later, since it builds strings.  */
-  if (do_initial_setlocale)
-    setlocale (LC_ALL, "");
+  /* Set locale, so that initial error messages are localized properly.
+     However, skip this if LC_ALL is "C", as it's not needed in that case.
+     Skipping helps if dumping with unexec, to ensure that the dumped
+     Emacs does not have its system locale tables initialized, as that
+     might cause screwups when the dumped Emacs starts up.  */
+  char *lc_all = getenv ("LC_ALL");
+  if (! (lc_all && strcmp (lc_all, "C") == 0))
+    {
+      #ifdef HAVE_NS
+        ns_pool = ns_alloc_autorelease_pool ();
+        ns_init_locale ();
+      #endif
+      setlocale (LC_ALL, "");
+      fixup_locale ();
+    }
   text_quoting_flag = using_utf8 ();
 
   inhibit_window_system = 0;
@@ -1289,12 +1296,12 @@ emacs_main (int argc, char **argv)
 	{
 	  emacs_close (STDIN_FILENO);
 	  emacs_close (STDOUT_FILENO);
-	  int result = emacs_open (term, O_RDWR, 0);
+	  int result = emacs_open_noquit (term, O_RDWR, 0);
 	  if (result != STDIN_FILENO
 	      || (fcntl (STDIN_FILENO, F_DUPFD_CLOEXEC, STDOUT_FILENO)
 		  != STDOUT_FILENO))
 	    {
-	      char *errstring = strerror (errno);
+	      const char *errstring = strerror (errno);
 	      fprintf (stderr, "%s: %s: %s\n", argv[0], term, errstring);
 	      exit (EXIT_FAILURE);
 	    }
@@ -1557,6 +1564,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   if (!initialized)
     {
       init_alloc_once ();
+      init_pdumper_once ();
       init_obarray_once ();
       init_eval_once ();
       init_charset_once ();
@@ -1605,14 +1613,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   init_alloc ();
   init_bignum ();
   init_threads ();
-
-  if (do_initial_setlocale)
-    {
-      fixup_locale ();
-      Vsystem_messages_locale = Vprevious_system_messages_locale;
-      Vsystem_time_locale = Vprevious_system_time_locale;
-    }
-
   init_eval ();
   init_atimer ();
   running_asynch_code = 0;
@@ -1649,12 +1649,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif
 
 #ifdef HAVE_NS
-  ns_pool = ns_alloc_autorelease_pool ();
-#ifdef NS_IMPL_GNUSTEP
-  /* GNUstep stupidly resets our locale settings after we made them.  */
-  fixup_locale ();
-#endif
-
   if (!noninteractive)
     {
 #ifdef NS_IMPL_COCOA
@@ -1922,7 +1916,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_xfns ();
       syms_of_xmenu ();
       syms_of_fontset ();
-      syms_of_xwidget ();
       syms_of_xsettings ();
 #ifdef HAVE_X_SM
       syms_of_xsmfns ();
@@ -2008,6 +2001,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif /* HAVE_W32NOTIFY */
 #endif /* WINDOWSNT */
 
+      syms_of_xwidget ();
       syms_of_threads ();
       syms_of_profiler ();
       syms_of_pdumper ();
@@ -2016,12 +2010,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_json ();
 #endif
 
-      keys_of_casefiddle ();
-      keys_of_cmds ();
-      keys_of_buffer ();
       keys_of_keyboard ();
-      keys_of_keymap ();
-      keys_of_window ();
     }
   else
     {
@@ -2043,7 +2032,6 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   /* This calls putenv and so must precede init_process_emacs.  */
   init_timefns ();
 
-  /* This sets Voperating_system_release, which init_process_emacs uses.  */
   init_editfns ();
 
   /* These two call putenv.  */
@@ -2429,10 +2417,13 @@ all of which are called before Emacs is actually killed.  */
   /* Fsignal calls emacs_abort () if it sees that waiting_for_input is
      set.  */
   waiting_for_input = 0;
-  if (noninteractive)
-    safe_run_hooks (Qkill_emacs_hook);
-  else
-    run_hook (Qkill_emacs_hook);
+  if (!NILP (find_symbol_value (Qkill_emacs_hook)))
+    {
+      if (noninteractive)
+	safe_run_hooks (Qkill_emacs_hook);
+      else
+	call1 (Qrun_hook_query_error_with_timeout, Qkill_emacs_hook);
+    }
 
 #ifdef HAVE_X_WINDOWS
   /* Transfer any clipboards we own to the clipboard manager.  */
@@ -2683,24 +2674,24 @@ synchronize_locale (int category, Lisp_Object *plocale, Lisp_Object desired_loca
   if (! EQ (*plocale, desired_locale))
     {
       *plocale = desired_locale;
-#ifdef WINDOWSNT
+      char const *locale_string
+	= STRINGP (desired_locale) ? SSDATA (desired_locale) : "";
+# ifdef WINDOWSNT
       /* Changing categories like LC_TIME usually requires specifying
 	 an encoding suitable for the new locale, but MS-Windows's
 	 'setlocale' will only switch the encoding when LC_ALL is
 	 specified.  So we ignore CATEGORY, use LC_ALL instead, and
 	 then restore LC_NUMERIC to "C", so reading and printing
 	 numbers is unaffected.  */
-      setlocale (LC_ALL, (STRINGP (desired_locale)
-			  ? SSDATA (desired_locale)
-			  : ""));
+      setlocale (LC_ALL, locale_string);
       fixup_locale ();
-#else  /* !WINDOWSNT */
-      setlocale (category, (STRINGP (desired_locale)
-			    ? SSDATA (desired_locale)
-			    : ""));
-#endif	/* !WINDOWSNT */
+# else	/* !WINDOWSNT */
+      setlocale (category, locale_string);
+# endif	/* !WINDOWSNT */
     }
 }
+
+static Lisp_Object Vprevious_system_time_locale;
 
 /* Set system time locale to match Vsystem_time_locale, if possible.  */
 void
@@ -2710,15 +2701,19 @@ synchronize_system_time_locale (void)
 		      Vsystem_time_locale);
 }
 
+# ifdef LC_MESSAGES
+static Lisp_Object Vprevious_system_messages_locale;
+# endif
+
 /* Set system messages locale to match Vsystem_messages_locale, if
    possible.  */
 void
 synchronize_system_messages_locale (void)
 {
-#ifdef LC_MESSAGES
+# ifdef LC_MESSAGES
   synchronize_locale (LC_MESSAGES, &Vprevious_system_messages_locale,
 		      Vsystem_messages_locale);
-#endif
+# endif
 }
 #endif /* HAVE_SETLOCALE */
 
@@ -2802,7 +2797,7 @@ decode_env_path (const char *evarname, const char *defalt, bool empty)
 	      }
 	  }
 	else if (cnv_result != 0 && d > path_utf8)
-	  d[-1] = '\0';	/* remove last semi-colon and NUL-terminate PATH */
+	  d[-1] = '\0';	/* remove last semi-colon and null-terminate PATH */
       } while (q);
       path_copy = path_utf8;
 #else  /* MSDOS */
@@ -2909,7 +2904,7 @@ from the parent process and its tty file descriptors.  */)
       int nfd;
 
       /* Get rid of stdin, stdout and stderr.  */
-      nfd = emacs_open ("/dev/null", O_RDWR, 0);
+      nfd = emacs_open_noquit ("/dev/null", O_RDWR, 0);
       err |= nfd < 0;
       err |= dup2 (nfd, STDIN_FILENO) < 0;
       err |= dup2 (nfd, STDOUT_FILENO) < 0;
@@ -2950,6 +2945,8 @@ syms_of_emacs (void)
   DEFSYM (Qrisky_local_variable, "risky-local-variable");
   DEFSYM (Qkill_emacs, "kill-emacs");
   DEFSYM (Qkill_emacs_hook, "kill-emacs-hook");
+  DEFSYM (Qrun_hook_query_error_with_timeout,
+	  "run-hook-query-error-with-timeout");
 
 #ifdef HAVE_UNEXEC
   defsubr (&Sdump_emacs);
@@ -3040,19 +3037,16 @@ build directory.  */);
   DEFVAR_LISP ("system-messages-locale", Vsystem_messages_locale,
 	       doc: /* System locale for messages.  */);
   Vsystem_messages_locale = Qnil;
-
-  DEFVAR_LISP ("previous-system-messages-locale",
-	       Vprevious_system_messages_locale,
-	       doc: /* Most recently used system locale for messages.  */);
+#ifdef LC_MESSAGES
   Vprevious_system_messages_locale = Qnil;
+  staticpro (&Vprevious_system_messages_locale);
+#endif
 
   DEFVAR_LISP ("system-time-locale", Vsystem_time_locale,
 	       doc: /* System locale for time.  */);
   Vsystem_time_locale = Qnil;
-
-  DEFVAR_LISP ("previous-system-time-locale", Vprevious_system_time_locale,
-	       doc: /* Most recently used system locale for time.  */);
   Vprevious_system_time_locale = Qnil;
+  staticpro (&Vprevious_system_time_locale);
 
   DEFVAR_LISP ("before-init-time", Vbefore_init_time,
 	       doc: /* Value of `current-time' before Emacs begins initialization.  */);

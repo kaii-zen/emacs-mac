@@ -426,17 +426,15 @@ Default action as described in `semanticdb-find-translate-path'."
       ;; searchable item, then instead do the regular thing without caching.
       (semanticdb-find-translate-path-includes--internal path))))
 
-(defvar semanticdb-find-lost-includes nil
+(defvar-local semanticdb-find-lost-includes nil
   "Include files that we cannot find associated with this buffer.")
-(make-variable-buffer-local 'semanticdb-find-lost-includes)
 
-(defvar semanticdb-find-scanned-include-tags nil
+(defvar-local semanticdb-find-scanned-include-tags nil
   "All include tags scanned, plus action taken on the tag.
 Each entry is an alist:
   (ACTION . TAG)
 where ACTION is one of `scanned', `duplicate', `lost'
 and TAG is a clone of the include tag that was found.")
-(make-variable-buffer-local 'semanticdb-find-scanned-include-tags)
 
 (defvar semanticdb-implied-include-tags nil
   "Include tags implied for all files of a given mode.
@@ -1245,7 +1243,7 @@ See `semanticdb-find-translate-path' for details on PATH.
 The argument BRUTISH will be set so that searching includes all tables
 in the current project.
 FIND-FILE-MATCH indicates that any time a match is found, the file
-associated wit that tag should be loaded into a buffer."
+associated with that tag should be loaded into a buffer."
   (semanticdb-find-tags-collector
    (lambda (table tags)
      (semanticdb-deep-find-tags-by-name-method table name tags))
@@ -1257,7 +1255,7 @@ See `semanticdb-find-translate-path' for details on PATH.
 The argument BRUTISH will be set so that searching includes all tables
 in the current project.
 FIND-FILE-MATCH indicates that any time a match is found, the file
-associated wit that tag should be loaded into a buffer."
+associated with that tag should be loaded into a buffer."
   (semanticdb-find-tags-collector
    (lambda (table tags)
      (semanticdb-deep-find-tags-for-completion-method table prefix tags))

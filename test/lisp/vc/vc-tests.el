@@ -1,21 +1,23 @@
-;;; vc-tests.el --- Tests of different backends of vc.el
+;;; vc-tests.el --- Tests of different backends of vc.el  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2014-2021 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
-;; This program is free software: you can redistribute it and/or
+;; This file is part of GNU Emacs.
+;;
+;; GNU Emacs is free software: you can redistribute it and/or
 ;; modify it under the terms of the GNU General Public License as
 ;; published by the Free Software Foundation, either version 3 of the
 ;; License, or (at your option) any later version.
 ;;
-;; This program is distributed in the hope that it will be useful, but
+;; GNU Emacs is distributed in the hope that it will be useful, but
 ;; WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
 ;; General Public License for more details.
 ;;
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see `https://www.gnu.org/licenses/'.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -224,11 +226,10 @@ For backends which don't support it, `vc-not-supported' is signaled."
 (defmacro vc-test--run-maybe-unsupported-function (func &rest args)
   "Run FUNC with ARGS as arguments.
 Catch the `vc-not-supported' error."
-  `(let (err)
-    (condition-case err
-        (funcall ,func ,@args)
-      (vc-not-supported 'vc-not-supported)
-      (t (signal (car err) (cdr err))))))
+  `(condition-case err
+       (funcall ,func ,@args)
+     (vc-not-supported 'vc-not-supported)
+     (t (signal (car err) (cdr err)))))
 
 (defun vc-test--register (backend)
   "Register and unregister a file.
@@ -438,8 +439,9 @@ This checks also `vc-backend' and `vc-responsible-backend'."
 	    ;; nil: Git Mtn
 	    ;; "0": Bzr CVS Hg SRC SVN
 	    ;; "1.1": RCS SCCS
+            ;; "-1": Hg versions before 5 (probably)
             (message "vc-working-revision4 %s" (vc-working-revision tmp-name))
-            (should (member (vc-working-revision tmp-name) '(nil "0" "1.1")))
+            (should (member (vc-working-revision tmp-name) '(nil "0" "1.1" "-1")))
 
             ;; TODO: Call `vc-checkin', and check the resulting
             ;; working revision.  None of the return values should be
@@ -555,7 +557,8 @@ This checks also `vc-backend' and `vc-responsible-backend'."
 
 (defvar vc-svn-program)
 (defun vc-test--svn-enabled ()
-  (executable-find vc-svn-program))
+  (and (executable-find "svnadmin")
+       (executable-find vc-svn-program)))
 
 (defun vc-test--sccs-enabled ()
   (executable-find "sccs"))

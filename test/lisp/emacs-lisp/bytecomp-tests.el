@@ -1,4 +1,4 @@
-;;; bytecomp-tests.el
+;;; bytecomp-tests.el  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2008-2021 Free Software Foundation, Inc.
 
@@ -26,6 +26,7 @@
 ;;; Commentary:
 
 (require 'ert)
+(require 'ert-x)
 (require 'cl-lib)
 (require 'subr-x)
 (require 'bytecomp)
@@ -47,6 +48,11 @@
     (let ((a 1.0))				   (/ 3 a 2))
     (let ((a most-positive-fixnum) (b 2.0))	   (* a 2 b))
     (let ((a 3) (b 2))				   (/ a b 1.0))
+    (let ((a -0.0)) (+ a))
+    (let ((a -0.0)) (- a))
+    (let ((a -0.0)) (* a))
+    (let ((a -0.0)) (min a))
+    (let ((a -0.0)) (max a))
     (/ 3 -1)
     (+ 4 3 2 1)
     (+ 4 3 2.0 1)
@@ -360,7 +366,12 @@
             '(((a b)) a b (c) (d)))
     (mapcar (lambda (x) (cond ((memq '(a b) x) 1)
                               ((equal x '(c)) 2)))
-            '(((a b)) a b (c) (d))))
+            '(((a b)) a b (c) (d)))
+
+    (assoc 'b '((a 1) (b 2) (c 3)))
+    (assoc "b" '(("a" 1) ("b" 2) ("c" 3)))
+    (let ((x '((a 1) (b 2) (c 3)))) (assoc 'c x))
+    (assoc 'a '((a 1) (b 2) (c 3)) (lambda (u v) (not (equal u v)))))
   "List of expression for test.
 Each element will be executed by interpreter and with
 bytecompiled code, and their results compared.")
@@ -368,24 +379,24 @@ bytecompiled code, and their results compared.")
 (defun bytecomp-check-1 (pat)
   "Return non-nil if PAT is the same whether directly evalled or compiled."
   (let ((warning-minimum-log-level :emergency)
-	(byte-compile-warnings nil)
-	(v0 (condition-case nil
+        (byte-compile-warnings nil)
+	(v0 (condition-case err
 		(eval pat)
-	      (error nil)))
-	(v1 (condition-case nil
+	      (error (list 'bytecomp-check-error (car err)))))
+	(v1 (condition-case err
 		(funcall (byte-compile (list 'lambda nil pat)))
-	      (error nil))))
+	      (error (list 'bytecomp-check-error (car err))))))
     (equal v0 v1)))
 
 (put 'bytecomp-check-1 'ert-explainer 'bytecomp-explain-1)
 
 (defun bytecomp-explain-1 (pat)
-  (let ((v0 (condition-case nil
+  (let ((v0 (condition-case err
 		(eval pat)
-	      (error nil)))
-	(v1 (condition-case nil
+	      (error (list 'bytecomp-check-error (car err)))))
+	(v1 (condition-case err
 		(funcall (byte-compile (list 'lambda nil pat)))
-	      (error nil))))
+	      (error (list 'bytecomp-check-error (car err))))))
     (format "Expression `%s' gives `%s' if directly evalled, `%s' if compiled."
 	    pat v0 v1)))
 
@@ -408,12 +419,12 @@ Subtests signal errors if something goes wrong."
 	(print-quoted t)
 	v0 v1)
     (dolist (pat byte-opt-testsuite-arith-data)
-      (condition-case nil
+      (condition-case err
 	  (setq v0 (eval pat))
-	(error (setq v0 nil)))
-      (condition-case nil
+	(error (setq v0 (list 'bytecomp-check-error (car err)))))
+      (condition-case err
 	  (setq v1 (funcall (byte-compile (list 'lambda nil pat))))
-	(error (setq v1 nil)))
+	(error (setq v1 (list 'bytecomp-check-error (car err)))))
       (insert (format "%s" pat))
       (indent-to-column 65)
       (if (equal v0 v1)
@@ -439,8 +450,8 @@ Subtests signal errors if something goes wrong."
            (if compile
                (let ((byte-compile-dest-file-function
                       (lambda (e) elcfile)))
-                 (byte-compile-file elfile t))
-             (load elfile nil 'nomessage)))
+                 (byte-compile-file elfile)))
+           (load elfile nil 'nomessage))
       (when elfile (delete-file elfile))
       (when elcfile (delete-file elcfile)))))
 (put 'test-byte-comp-compile-and-load 'lisp-indent-function 1)
@@ -479,9 +490,13 @@ Subtests signal errors if something goes wrong."
       (defun def () (m))))
   (should (equal (funcall 'def) 4)))
 
+
+;;;; Warnings.
+
 (ert-deftest bytecomp-tests--warnings ()
   (with-current-buffer (get-buffer-create "*Compile-Log*")
     (let ((inhibit-read-only t)) (erase-buffer)))
+  (mapc #'fmakunbound '(my-test0 my--test11 my--test12 my--test2))
   (test-byte-comp-compile-and-load t
     '(progn
        (defun my-test0 ()
@@ -505,19 +520,205 @@ Subtests signal errors if something goes wrong."
     ;; Should not warn that mt--test2 is not known to be defined.
     (should-not (re-search-forward "my--test2" nil t))))
 
+(defmacro bytecomp--with-warning-test (re-warning &rest form)
+  (declare (indent 1))
+  `(with-current-buffer (get-buffer-create "*Compile-Log*")
+     (let ((inhibit-read-only t)) (erase-buffer))
+     (byte-compile ,@form)
+     (ert-info ((buffer-string) :prefix "buffer: ")
+       (should (re-search-forward ,re-warning)))))
+
 (ert-deftest bytecomp-warn-wrong-args ()
-  (with-current-buffer (get-buffer-create "*Compile-Log*")
-    (let ((inhibit-read-only t)) (erase-buffer))
-    (byte-compile '(remq 1 2 3))
-    (ert-info ((buffer-string) :prefix "buffer: ")
-      (should (re-search-forward "remq.*3.*2")))))
+  (bytecomp--with-warning-test "remq.*3.*2"
+    '(remq 1 2 3)))
 
 (ert-deftest bytecomp-warn-wrong-args-subr ()
-  (with-current-buffer (get-buffer-create "*Compile-Log*")
-    (let ((inhibit-read-only t)) (erase-buffer))
-    (byte-compile '(safe-length 1 2 3))
-    (ert-info ((buffer-string) :prefix "buffer: ")
-      (should (re-search-forward "safe-length.*3.*1")))))
+  (bytecomp--with-warning-test "safe-length.*3.*1"
+    '(safe-length 1 2 3)))
+
+(ert-deftest bytecomp-warn-variable-lacks-prefix ()
+  (bytecomp--with-warning-test "foo.*lacks a prefix"
+    '(defvar foo nil)))
+
+(defvar bytecomp-tests--docstring (make-string 100 ?x))
+
+(ert-deftest bytecomp-warn-wide-docstring/defconst ()
+  (bytecomp--with-warning-test "defconst.*foo.*wider than.*characters"
+    `(defconst foo t ,bytecomp-tests--docstring)))
+
+(ert-deftest bytecomp-warn-wide-docstring/defvar ()
+  (bytecomp--with-warning-test "defvar.*foo.*wider than.*characters"
+    `(defvar foo t ,bytecomp-tests--docstring)))
+
+(defmacro bytecomp--define-warning-file-test (file re-warning &optional reverse)
+  `(ert-deftest ,(intern (format "bytecomp/%s" file)) ()
+     :expected-result ,(if reverse :failed :passed)
+     (with-current-buffer (get-buffer-create "*Compile-Log*")
+       (let ((inhibit-read-only t)) (erase-buffer))
+       (byte-compile-file ,(ert-resource-file file))
+       (ert-info ((buffer-string) :prefix "buffer: ")
+         (should (re-search-forward ,re-warning))))))
+
+(bytecomp--define-warning-file-test "error-lexical-var-with-add-hook.el"
+                            "add-hook.*lexical var")
+
+(bytecomp--define-warning-file-test "error-lexical-var-with-remove-hook.el"
+                            "remove-hook.*lexical var")
+
+(bytecomp--define-warning-file-test "error-lexical-var-with-run-hook-with-args-until-failure.el"
+                            "args-until-failure.*lexical var")
+
+(bytecomp--define-warning-file-test "error-lexical-var-with-run-hook-with-args-until-success.el"
+                            "args-until-success.*lexical var")
+
+(bytecomp--define-warning-file-test "error-lexical-var-with-run-hook-with-args.el"
+                            "args.*lexical var")
+
+(bytecomp--define-warning-file-test "error-lexical-var-with-symbol-value.el"
+                            "symbol-value.*lexical var")
+
+(bytecomp--define-warning-file-test "warn-autoload-not-on-top-level.el"
+                            "compiler ignores.*autoload.*")
+
+(bytecomp--define-warning-file-test "warn-callargs.el"
+                            "with 2 arguments, but accepts only 1")
+
+(bytecomp--define-warning-file-test "warn-defcustom-nogroup.el"
+                            "fails to specify containing group")
+
+(bytecomp--define-warning-file-test "warn-defcustom-notype.el"
+                            "fails to specify type")
+
+(bytecomp--define-warning-file-test "warn-defvar-lacks-prefix.el"
+                            "var.*foo.*lacks a prefix")
+
+(bytecomp--define-warning-file-test "warn-format.el"
+                            "called with 2 args to fill 1 format field")
+
+(bytecomp--define-warning-file-test "warn-free-setq.el"
+                            "free.*foo")
+
+(bytecomp--define-warning-file-test "warn-free-variable-reference.el"
+                            "free.*bar")
+
+(bytecomp--define-warning-file-test "warn-make-variable-buffer-local.el"
+                            "make-variable-buffer-local.*not called at toplevel")
+
+(bytecomp--define-warning-file-test "warn-interactive-only.el"
+                            "next-line.*interactive use only.*forward-line")
+
+(bytecomp--define-warning-file-test "warn-lambda-malformed-interactive-spec.el"
+                            "malformed interactive spec")
+
+(bytecomp--define-warning-file-test "warn-obsolete-defun.el"
+                            "foo-obsolete.*obsolete function.*99.99")
+
+(defvar bytecomp--tests-obsolete-var nil)
+(make-obsolete-variable 'bytecomp--tests-obsolete-var nil "99.99")
+
+(bytecomp--define-warning-file-test "warn-obsolete-hook.el"
+                            "bytecomp--tests-obs.*obsolete[^z-a]*99.99")
+
+(bytecomp--define-warning-file-test "warn-obsolete-variable-same-file.el"
+                            "foo-obs.*obsolete.*99.99" t)
+
+(bytecomp--define-warning-file-test "warn-obsolete-variable.el"
+                            "bytecomp--tests-obs.*obsolete[^z-a]*99.99")
+
+(bytecomp--define-warning-file-test "warn-obsolete-variable-bound.el"
+                            "bytecomp--tests-obs.*obsolete.*99.99" t)
+
+(bytecomp--define-warning-file-test "warn-redefine-defun-as-macro.el"
+                            "as both function and macro")
+
+(bytecomp--define-warning-file-test "warn-redefine-macro-as-defun.el"
+                            "as both function and macro")
+
+(bytecomp--define-warning-file-test "warn-redefine-defun.el"
+                            "defined multiple")
+
+(bytecomp--define-warning-file-test "warn-save-excursion.el"
+                            "with-current.*rather than save-excursion")
+
+(bytecomp--define-warning-file-test "warn-variable-let-bind-constant.el"
+                            "let-bind constant")
+
+(bytecomp--define-warning-file-test "warn-variable-let-bind-nonvariable.el"
+                            "let-bind nonvariable")
+
+(bytecomp--define-warning-file-test "warn-variable-set-constant.el"
+                            "variable reference to constant")
+
+(bytecomp--define-warning-file-test "warn-variable-set-nonvariable.el"
+                            "variable reference to nonvariable")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-autoload.el"
+ "autoload.*foox.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-custom-declare-variable.el"
+ "custom-declare-variable.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-defalias.el"
+ "defalias.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-defconst.el"
+ "defconst.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-define-abbrev-table.el"
+ "define-abbrev.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-define-obsolete-function-alias.el"
+ "defalias.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-define-obsolete-variable-alias.el"
+ "defvaralias.*foo.*wider than.*characters")
+
+;; TODO: We don't yet issue warnings for defuns.
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-defun.el"
+ "wider than.*characters" 'reverse)
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-defvar.el"
+ "defvar.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-defvaralias.el"
+ "defvaralias.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-ignore-fill-column.el"
+ "defvar.*foo.*wider than.*characters" 'reverse)
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-ignore-override.el"
+ "defvar.*foo.*wider than.*characters" 'reverse)
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-ignore.el"
+ "defvar.*foo.*wider than.*characters" 'reverse)
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-multiline-first.el"
+ "defvar.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "warn-wide-docstring-multiline.el"
+ "defvar.*foo.*wider than.*characters")
+
+(bytecomp--define-warning-file-test
+ "nowarn-inline-after-defvar.el"
+ "Lexical argument shadows" 'reverse)
+
+
+;;;; Macro expansion.
 
 (ert-deftest test-eager-load-macro-expansion ()
   (test-byte-comp-compile-and-load nil
@@ -567,25 +768,25 @@ bytecompiled code, and their results compared.")
   "Return non-nil if PAT is the same whether directly evalled or compiled."
   (let ((warning-minimum-log-level :emergency)
 	(byte-compile-warnings nil)
-	(v0 (condition-case nil
+	(v0 (condition-case err
 		(eval pat t)
-	      (error nil)))
-	(v1 (condition-case nil
+	      (error (list 'bytecomp-check-error (car err)))))
+	(v1 (condition-case err
 		(funcall (let ((lexical-binding t))
                            (byte-compile `(lambda nil ,pat))))
-	      (error nil))))
+	      (error (list 'bytecomp-check-error (car err))))))
     (equal v0 v1)))
 
 (put 'bytecomp-lexbind-check-1 'ert-explainer 'bytecomp-lexbind-explain-1)
 
 (defun bytecomp-lexbind-explain-1 (pat)
-  (let ((v0 (condition-case nil
+  (let ((v0 (condition-case err
 		(eval pat t)
-	      (error nil)))
-	(v1 (condition-case nil
+	      (error (list 'bytecomp-check-error (car err)))))
+	(v1 (condition-case err
 		(funcall (let ((lexical-binding t))
                            (byte-compile (list 'lambda nil pat))))
-	      (error nil))))
+	      (error (list 'bytecomp-check-error (car err))))))
     (format "Expression `%s' gives `%s' if directly evalled, `%s' if compiled."
 	    pat v0 v1)))
 
@@ -628,17 +829,6 @@ literals (Bug#20852)."
         (let ((byte-compile-dest-file-function (lambda (_) destination)))
           (should (byte-compile-file source)))))))
 
-(ert-deftest bytecomp-tests--old-style-backquotes ()
-  "Check that byte compiling warns about old-style backquotes."
-  (bytecomp-tests--with-temp-file source
-    (write-region "(` (a b))" nil source)
-    (bytecomp-tests--with-temp-file destination
-      (let* ((byte-compile-dest-file-function (lambda (_) destination))
-             (byte-compile-debug t)
-             (err (should-error (byte-compile-file source))))
-        (should (equal (cdr err) '("Old-style backquotes detected!")))))))
-
-
 (ert-deftest bytecomp-tests-function-put ()
   "Check `function-put' operates during compilation."
   (bytecomp-tests--with-temp-file source
@@ -651,7 +841,8 @@ literals (Bug#20852)."
                     (setq bytecomp-tests--foobar (bytecomp-tests--foobar))))
       (print form (current-buffer)))
     (write-region (point-min) (point-max) source nil 'silent)
-    (byte-compile-file source t)
+    (byte-compile-file source)
+    (load source)
     (should (equal bytecomp-tests--foobar (cons 1 2)))))
 
 (ert-deftest bytecomp-tests--test-no-warnings-with-advice ()
@@ -809,6 +1000,12 @@ literals (Bug#20852)."
 
   (test-suppression
    '(defun zot ()
+      (next-line))
+   '((interactive-only next-line))
+   "interactive use only")
+
+  (test-suppression
+   '(defun zot ()
       (mapcar #'list '(1 2 3))
       nil)
    '((mapcar mapcar))
@@ -827,6 +1024,90 @@ literals (Bug#20852)."
         nil))
    '((suspicious set-buffer))
    "Warning: Use .with-current-buffer. rather than"))
+
+(ert-deftest bytecomp-tests--not-writable-directory ()
+  "Test that byte compilation works if the output directory isn't
+writable (Bug#44631)."
+  (let ((directory (make-temp-file "bytecomp-tests-" :directory)))
+    (unwind-protect
+        (let* ((input-file (expand-file-name "test.el" directory))
+               (output-file (expand-file-name "test.elc" directory))
+               (byte-compile-dest-file-function
+                (lambda (_) output-file))
+               (byte-compile-error-on-warn t))
+          (write-region "" nil input-file nil nil nil 'excl)
+          (write-region "" nil output-file nil nil nil 'excl)
+          (set-file-modes input-file #o400)
+          (set-file-modes output-file #o200)
+          (set-file-modes directory #o500)
+          (should (byte-compile-file input-file))
+          (should (file-regular-p output-file))
+          (should (cl-plusp (file-attribute-size
+                             (file-attributes output-file)))))
+      (with-demoted-errors "Error cleaning up directory: %s"
+        (set-file-modes directory #o700)
+        (delete-directory directory :recursive)))))
+
+(ert-deftest bytecomp-tests--dest-mountpoint ()
+  "Test that byte compilation works if the destination file is a
+mountpoint (Bug#44631)."
+  (let ((bwrap (executable-find "bwrap"))
+        (emacs (expand-file-name invocation-name invocation-directory)))
+    (skip-unless bwrap)
+    (skip-unless (file-executable-p bwrap))
+    (skip-unless (not (file-remote-p bwrap)))
+    (skip-unless (file-executable-p emacs))
+    (skip-unless (not (file-remote-p emacs)))
+    (let ((directory (make-temp-file "bytecomp-tests-" :directory)))
+      (unwind-protect
+          (let* ((input-file (expand-file-name "test.el" directory))
+                 (output-file (expand-file-name "test.elc" directory))
+                 (unquoted-file (file-name-unquote output-file))
+                 (byte-compile-dest-file-function
+                  (lambda (_) output-file))
+                 (byte-compile-error-on-warn t))
+            (should-not (file-remote-p input-file))
+            (should-not (file-remote-p output-file))
+            (write-region "" nil input-file nil nil nil 'excl)
+            (write-region "" nil output-file nil nil nil 'excl)
+            (set-file-modes input-file #o400)
+            (set-file-modes output-file #o200)
+            (set-file-modes directory #o500)
+            (with-temp-buffer
+              (let ((status (call-process
+                             bwrap nil t nil
+                             "--ro-bind" "/" "/"
+                             "--bind" unquoted-file unquoted-file
+                             emacs "--quick" "--batch" "--load=bytecomp"
+                             (format "--eval=%S"
+                                     `(setq byte-compile-dest-file-function
+                                            (lambda (_) ,output-file)
+                                            byte-compile-error-on-warn t))
+                             "--funcall=batch-byte-compile" input-file)))
+                (unless (eql status 0)
+                  (ert-fail `((status . ,status)
+                              (output . ,(buffer-string)))))))
+            (should (file-regular-p output-file))
+            (should (cl-plusp (file-attribute-size
+                               (file-attributes output-file)))))
+        (with-demoted-errors "Error cleaning up directory: %s"
+          (set-file-modes directory #o700)
+          (delete-directory directory :recursive))))))
+
+(ert-deftest bytecomp-tests--target-file-no-directory ()
+  "Check that Bug#45287 is fixed."
+  (let ((directory (make-temp-file "bytecomp-tests-" :directory)))
+    (unwind-protect
+        (let* ((default-directory directory)
+               (byte-compile-dest-file-function (lambda (_) "test.elc"))
+               (byte-compile-error-on-warn t))
+          (write-region "" nil "test.el" nil nil nil 'excl)
+          (should (byte-compile-file "test.el"))
+          (should (file-regular-p "test.elc"))
+          (should (cl-plusp (file-attribute-size
+                             (file-attributes "test.elc")))))
+      (with-demoted-errors "Error cleaning up directory: %s"
+        (delete-directory directory :recursive)))))
 
 ;; Local Variables:
 ;; no-byte-compile: t

@@ -38,21 +38,18 @@
 If nil, default to `gravatar-size'."
   :type '(choice (const :tag "Default" nil)
                  (integer :tag "Pixels"))
-  :version "24.1"
-  :group 'gnus-gravatar)
+  :version "24.1")
 
 (defcustom gnus-gravatar-properties '(:ascent center :relief 1)
   "List of image properties applied to Gravatar images."
   :type 'plist
-  :version "24.1"
-  :group 'gnus-gravatar)
+  :version "24.1")
 
 (defcustom gnus-gravatar-too-ugly gnus-article-x-face-too-ugly
   "Regexp matching posters whose avatar shouldn't be shown automatically.
 If nil, show all avatars."
   :type '(choice regexp (const :tag "Allow all" nil))
-  :version "24.1"
-  :group 'gnus-gravatar)
+  :version "24.1")
 
 (defun gnus-gravatar-transform-address (header category &optional force)
   (gnus-with-article-headers
@@ -109,14 +106,16 @@ callback for `gravatar-retrieve'."
               ;; If we're on the " quoting the name, go backward.
               (when (looking-at-p "[\"<]")
                 (goto-char (1- (point))))
-              ;; Do not do anything if there's already a gravatar.  This can
-              ;; happen if the buffer has been regenerated in the mean time, for
-              ;; example we were fetching someaddress, and then we change to
-              ;; another mail with the same someaddress.
-              (unless (get-text-property (point) 'gnus-gravatar)
+              ;; Do not do anything if there's already a gravatar.
+              ;; This can happen if the buffer has been regenerated in
+              ;; the mean time, for example we were fetching
+              ;; someaddress, and then we change to another mail with
+              ;; the same someaddress.
+              (unless (get-text-property (1- (point)) 'gnus-gravatar)
                 (let ((pos (point)))
                   (setq gravatar (append gravatar gnus-gravatar-properties))
-                  (gnus-put-image gravatar (buffer-substring pos (1+ pos)) category)
+                  (gnus-put-image gravatar (buffer-substring pos (1+ pos))
+				  category)
                   (put-text-property pos (point) 'gnus-gravatar address)
                   (gnus-add-wash-type category)
                   (gnus-add-image category gravatar)))))

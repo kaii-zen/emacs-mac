@@ -260,7 +260,6 @@ nontrivial changes to the build process.
 
      These files contain characters that cannot be encoded in UTF-8.
 
-	lisp/international/titdic-cnv.el
 	lisp/language/ethio-util.el
 	lisp/language/ethiopic.el
 	lisp/language/ind-util.el
@@ -268,6 +267,7 @@ nontrivial changes to the build process.
 	lisp/language/tibetan.el
 	lisp/leim/quail/ethiopic.el
 	lisp/leim/quail/tibetan.el
+	lisp/international/titdic-cnv.el
 
  * binary files
 

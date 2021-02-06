@@ -58,13 +58,11 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'button)
 (require 'debug)
 (require 'backtrace)
 (require 'easymenu)
 (require 'ewoc)
 (require 'find-func)
-(require 'help)
 (require 'pp)
 
 ;;; UI customization options.
@@ -276,7 +274,7 @@ DATA is displayed to the user and should state the reason for skipping."
 It should only be stopped when ran from inside ert--run-test-internal."
   (when (and (not (symbolp debugger))   ; only run on anonymous debugger
              (memq error-symbol '(ert-test-failed ert-test-skipped)))
-    (funcall debugger 'error data)))
+    (funcall debugger 'error (list error-symbol data))))
 
 (defun ert--special-operator-p (thing)
   "Return non-nil if THING is a symbol naming a special operator."
@@ -489,7 +487,7 @@ Errors during evaluation are caught and handled like nil."
 Returns nil if they are."
   (if (not (eq (type-of a) (type-of b)))
       `(different-types ,a ,b)
-    (pcase-exhaustive a
+    (pcase a
       ((pred consp)
        (let ((a-length (proper-list-p a))
              (b-length (proper-list-p b)))
@@ -515,7 +513,14 @@ Returns nil if they are."
                        `(cdr ,cdr-x)
                      (cl-assert (equal a b) t)
                      nil))))))))
-      ((pred arrayp)
+      ((pred cl-struct-p)
+       (cl-loop for slot in (cl-struct-slot-info (type-of a))
+                for ai across a
+                for bi across b
+                for xf = (ert--explain-equal-rec ai bi)
+                do (when xf (cl-return `(struct-field ,(car slot) ,xf)))
+                finally (cl-assert (equal a b) t)))
+      ((or (pred arrayp) (pred recordp))
        ;; For mixed unibyte/multibyte string comparisons, make both multibyte.
        (when (and (stringp a)
                   (xor (multibyte-string-p a) (multibyte-string-p b)))
@@ -533,7 +538,7 @@ Returns nil if they are."
                   for xi = (ert--explain-equal-rec ai bi)
                   do (when xi (cl-return `(array-elt ,i ,xi)))
                   finally (cl-assert (equal a b) t))))
-      ((pred atom)
+      (_
        (if (not (equal a b))
            (if (and (symbolp a) (symbolp b) (string= a b))
                `(different-symbols-with-the-same-name ,a ,b)
@@ -1298,7 +1303,8 @@ EXPECTEDP specifies whether the result was expected."
   "Pretty-print OBJECT, indenting it to the current column of point.
 Ensures a final newline is inserted."
   (let ((begin (point))
-        (pp-escape-newlines nil))
+        (pp-escape-newlines nil)
+        (print-escape-control-characters t))
     (pp object (current-buffer))
     (unless (bolp) (insert "\n"))
     (save-excursion
@@ -1628,9 +1634,7 @@ Signals an error if no test name was read."
                     nil)))
     (ert-test (setq default (ert-test-name default))))
   (when add-default-to-prompt
-    (setq prompt (if (null default)
-                     (format "%s: " prompt)
-                   (format "%s (default %s): " prompt default))))
+    (setq prompt (format-prompt prompt default)))
   (let ((input (completing-read prompt obarray #'ert-test-boundp
                                 t nil history default nil)))
     ;; completing-read returns an empty string if default was nil and
@@ -1798,8 +1802,8 @@ Also sets `ert--results-progress-bar-button-begin'."
            ;; `progress-bar-button-begin' will be the right position
            ;; even in the results buffer.
            (with-current-buffer results-buffer
-             (set (make-local-variable 'ert--results-progress-bar-button-begin)
-                  progress-bar-button-begin))))
+             (setq-local ert--results-progress-bar-button-begin
+                         progress-bar-button-begin))))
        (insert "\n\n")
        (buffer-string))
      ;; footer
@@ -1975,15 +1979,15 @@ BUFFER-NAME, if non-nil, is the buffer name to use."
         ;; from ert-results-mode to ert-results-mode when
         ;; font-lock-mode turns itself off in change-major-mode-hook.)
         (erase-buffer)
-        (set (make-local-variable 'font-lock-function)
-             'ert--results-font-lock-function)
+        (setq-local font-lock-function
+                    'ert--results-font-lock-function)
         (let ((ewoc (ewoc-create 'ert--print-test-for-ewoc nil nil t)))
-          (set (make-local-variable 'ert--results-ewoc) ewoc)
-          (set (make-local-variable 'ert--results-stats) stats)
-          (set (make-local-variable 'ert--results-progress-bar-string)
-               (make-string (ert-stats-total stats)
-                            (ert-char-for-test-result nil t)))
-          (set (make-local-variable 'ert--results-listener) listener)
+          (setq-local ert--results-ewoc ewoc)
+          (setq-local ert--results-stats stats)
+          (setq-local ert--results-progress-bar-string
+                      (make-string (ert-stats-total stats)
+                                   (ert-char-for-test-result nil t)))
+          (setq-local ert--results-listener listener)
           (cl-loop for test across (ert--stats-tests stats) do
                    (ewoc-enter-last ewoc
                                     (make-ert--ewoc-entry :test test
@@ -2016,9 +2020,7 @@ and how to display message."
                             (car ert--selector-history)
                           "t")))
            (read
-            (completing-read (if (null default)
-                                 "Run tests: "
-                               (format "Run tests (default %s): " default))
+            (completing-read (format-prompt "Run tests" default)
                              obarray #'ert-test-boundp nil nil
                              'ert--selector-history default nil)))
          nil))

@@ -208,6 +208,7 @@ a section."
     (when start
       (save-excursion
         (goto-char start)
+        (looking-at outline-regexp)
         (let ((level (lisp-outline-level))
               (case-fold-search t)
               next-section-found)
@@ -218,6 +219,7 @@ a section."
                              nil t))
                       (> (save-excursion
                            (beginning-of-line)
+                           (looking-at outline-regexp)
                            (lisp-outline-level))
                          level)))
 	  (min (if next-section-found
@@ -485,7 +487,18 @@ absent, return nil."
   (lm-with-file file
     (let ((start (lm-commentary-start)))
       (when start
-        (buffer-substring-no-properties start (lm-commentary-end))))))
+        (replace-regexp-in-string       ; Get rid of...
+         "[[:blank:]]*$" ""             ; trailing white-space
+         (replace-regexp-in-string
+          (format "%s\\|%s\\|%s"
+                  ;; commentary header
+                  (concat "^;;;[[:blank:]]*\\("
+                          lm-commentary-header
+                          "\\):[[:blank:]\n]*")
+                  "^;;[[:blank:]]*"     ; double semicolon prefix
+                  "[[:blank:]\n]*\\'")  ; trailing new-lines
+          "" (buffer-substring-no-properties
+              start (lm-commentary-end))))))))
 
 (defun lm-homepage (&optional file)
   "Return the homepage in file FILE, or current buffer if FILE is nil."

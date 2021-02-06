@@ -5,7 +5,7 @@
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
 ;; Created: 29 Mar 1999
-;; Version: 2.0
+;; Old-Version: 2.0
 ;; Keywords: data memory todo pim
 ;; URL: http://gna.org/projects/remember-el/
 
@@ -159,7 +159,8 @@
 ;;   ;; This should be before other entries that may return t
 ;;   (add-to-list 'remember-handler-functions 'remember-diary-extract-entries)
 ;;
-;; This module recognizes entries of the form
+;; This module recognizes entries of the form (defined by
+;; `remember-diary-regexp')
 ;;
 ;;   DIARY: ....
 ;;
@@ -181,6 +182,7 @@
 
 (defconst remember-version "2.0"
   "This version of remember.")
+(make-obsolete-variable 'remember-version nil "28.1")
 
 (defgroup remember nil
   "A mode to remember information."
@@ -409,13 +411,24 @@ The default emulates `current-time-string' for backward compatibility."
   :group 'remember
   :version "27.1")
 
+(defcustom remember-text-format-function nil
+  "The function to format the remembered text.
+The function receives the remembered text as argument and should
+return the text to be remembered."
+  :type '(choice (const nil) function)
+  :group 'remember
+  :version "28.1")
+
 (defun remember-append-to-file ()
   "Remember, with description DESC, the given TEXT."
   (let* ((text (buffer-string))
          (desc (remember-buffer-desc))
-         (remember-text (concat "\n" remember-leader-text
-                                (format-time-string remember-time-format)
-                                " (" desc ")\n\n" text
+         (remember-text (concat "\n"
+                                (if remember-text-format-function
+                                    (funcall remember-text-format-function text)
+                                  (concat remember-leader-text
+                                          (format-time-string remember-time-format)
+                                          " (" desc ")\n\n" text))
                                 (save-excursion (goto-char (point-max))
                                                 (if (bolp) nil "\n"))))
          (buf (find-buffer-visiting remember-data-file)))
@@ -486,9 +499,6 @@ Most useful for remembering things from other applications."
   (interactive)
   (remember-region (point-min) (point-max)))
 
-;; Org needs this
-(define-obsolete-function-alias 'remember-buffer 'remember-finalize "23.1")
-
 (defun remember-destroy ()
   "Destroy the current *Remember* buffer."
   (interactive)
@@ -534,17 +544,28 @@ If this is nil, then `diary-file' will be used instead."
 
 (autoload 'diary-make-entry "diary-lib")
 
+(defcustom remember-diary-regexp "^DIARY:\\s-*\\(.+\\)"
+  "Regexp to extract diary entries."
+  :type 'regexp
+  :version "28.1")
+
+(defvar diary-file)
+
 ;;;###autoload
 (defun remember-diary-extract-entries ()
-  "Extract diary entries from the region."
+  "Extract diary entries from the region based on `remember-diary-regexp'."
   (save-excursion
     (goto-char (point-min))
     (let (list)
-      (while (re-search-forward "^DIARY:\\s-*\\(.+\\)" nil t)
+      (while (re-search-forward remember-diary-regexp nil t)
         (push (remember-diary-convert-entry (match-string 1)) list))
       (when list
         (diary-make-entry (mapconcat 'identity list "\n")
-                          nil remember-diary-file))
+                          nil remember-diary-file)
+        (when remember-save-after-remembering
+          (with-current-buffer (find-buffer-visiting (or remember-diary-file
+                                                         diary-file))
+            (save-buffer))))
       nil))) ;; Continue processing
 
 ;;; Internal Functions:
@@ -640,9 +661,14 @@ to turn the *scratch* buffer into your notes buffer."
   (interactive "p")
   (let ((buf (or (find-buffer-visiting remember-data-file)
                  (with-current-buffer (find-file-noselect remember-data-file)
-                   (and remember-notes-buffer-name
-                        (not (get-buffer remember-notes-buffer-name))
-                        (rename-buffer remember-notes-buffer-name))
+                   (when remember-notes-buffer-name
+                     (when (and (get-buffer remember-notes-buffer-name)
+                                (equal remember-notes-buffer-name "*scratch*"))
+                       (kill-buffer remember-notes-buffer-name))
+                     ;; Rename the buffer to the requested name (if
+                     ;; it's not already in use).
+                     (unless (get-buffer remember-notes-buffer-name)
+                       (rename-buffer remember-notes-buffer-name)))
                    (funcall (or remember-notes-initial-major-mode
                                 initial-major-mode))
                    (remember-notes-mode 1)

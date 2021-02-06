@@ -28,14 +28,7 @@
 ;; possible in as few moves as possible.
 
 ;; Bubbles is an implementation of the "Same Game", similar to "Same
-;; GNOME" and many others, see <http://en.wikipedia.org/wiki/SameGame>.
-
-;; Installation
-;; ------------
-
-;; Add the following lines to your init file:
-;; (add-to-list 'load-path "/path/to/bubbles/")
-;; (autoload 'bubbles "bubbles" "Play Bubbles" t)
+;; GNOME" and many others, see <https://en.wikipedia.org/wiki/SameGame>.
 
 ;; ======================================================================
 
@@ -80,6 +73,7 @@
 ;;; Code:
 
 (defconst bubbles-version "0.5" "Version number of bubbles.el.")
+(make-obsolete-variable 'bubbles-version nil "28.1")
 
 (require 'gamegrid)
 
@@ -87,6 +81,10 @@
 
 ;; Careful with that axe, Eugene! Order does matter in the custom
 ;; section below.
+
+(defgroup bubbles nil
+  "Bubbles, a puzzle game."
+  :group 'games)
 
 (defcustom bubbles-game-theme
   'easy
@@ -97,8 +95,7 @@ and a shift mode."
                 (const :tag "Medium" medium)
                 (const :tag "Difficult" difficult)
                 (const :tag "Hard" hard)
-                (const :tag "User defined" user-defined))
-  :group 'bubbles)
+                (const :tag "User defined" user-defined)))
 
 (defun bubbles-set-game-easy ()
   "Set game theme to `easy'."
@@ -129,10 +126,6 @@ and a shift mode."
   (interactive)
   (setq bubbles-game-theme 'user-defined)
   (bubbles))
-
-(defgroup bubbles nil
-  "Bubbles, a puzzle game."
-  :group 'games)
 
 (defcustom bubbles-graphics-theme
   'circles
@@ -975,16 +968,14 @@ Set `bubbles--col-offset' and `bubbles--row-offset'."
                        (* image-vert-size (bubbles--grid-height)))
                     2)))))
 
-(defun bubbles--remove-overlays ()
-  "Remove all overlays."
-  (if (fboundp 'remove-overlays)
-      (remove-overlays)))
+(define-obsolete-function-alias 'bubbles--remove-overlays
+  'remove-overlays "28.1")
 
 (defun bubbles--initialize ()
   "Initialize Bubbles game."
   (bubbles--initialize-faces)
   (bubbles--initialize-images)
-  (bubbles--remove-overlays)
+  (remove-overlays)
 
   (switch-to-buffer (get-buffer-create "*bubbles*"))
   (bubbles--compute-offsets)
@@ -1408,7 +1399,7 @@ Return t if new char is non-empty."
 
 (defun bubbles--show-images ()
   "Update images in the bubbles buffer."
-  (bubbles--remove-overlays)
+  (remove-overlays)
   (if (and (display-images-p)
            bubbles--images-ok
            (not (eq bubbles-graphics-theme 'ascii)))

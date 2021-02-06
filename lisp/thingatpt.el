@@ -52,7 +52,29 @@
 
 ;;; Code:
 
+(require 'cl-lib)
 (provide 'thingatpt)
+
+(defvar thing-at-point-provider-alist nil
+  "Alist of providers for returning a \"thing\" at point.
+This variable can be set globally, or appended to buffer-locally
+by modes, to provide functions that will return a \"thing\" at
+point.  The first provider for the \"thing\" that returns a
+non-nil value wins.
+
+For instance, a major mode could say:
+
+\(setq-local thing-at-point-provider-alist
+            (append thing-at-point-provider-alist
+                    \\='((url . my-mode--url-at-point))))
+
+to provide a way to get an `url' at point in that mode.  The
+provider functions are called with no parameters at the point in
+question.
+
+\"things\" include `symbol', `list', `sexp', `defun', `filename',
+`url', `email', `uuid', `word', `sentence', `whitespace', `line',
+and `page'.")
 
 ;; Basic movement
 
@@ -143,11 +165,18 @@ strip text properties from the return value.
 See the file `thingatpt.el' for documentation on how to define
 a symbol as a valid THING."
   (let ((text
-         (if (get thing 'thing-at-point)
-             (funcall (get thing 'thing-at-point))
+         (cond
+          ((cl-loop for (pthing . function) in thing-at-point-provider-alist
+                    when (eq pthing thing)
+                    for result = (funcall function)
+                    when result
+                    return result))
+          ((get thing 'thing-at-point)
+           (funcall (get thing 'thing-at-point)))
+          (t
            (let ((bounds (bounds-of-thing-at-point thing)))
              (when bounds
-               (buffer-substring (car bounds) (cdr bounds)))))))
+               (buffer-substring (car bounds) (cdr bounds))))))))
     (when (and text no-properties (sequencep text))
       (set-text-properties 0 (length text) nil text))
     text))
@@ -218,6 +247,15 @@ The bounds of THING are determined by `bounds-of-thing-at-point'."
 
 (put 'sexp 'beginning-op 'thing-at-point--beginning-of-sexp)
 
+;; Symbols
+
+(put 'symbol 'beginning-op 'thing-at-point--beginning-of-symbol)
+
+(defun thing-at-point--beginning-of-symbol ()
+  "Move point to the beginning of the current symbol."
+  (and (re-search-backward "\\(\\sw\\|\\s_\\)+")
+       (skip-syntax-backward "w_")))
+
 ;;  Lists
 
 (put 'list 'bounds-of-thing-at-point 'thing-at-point-bounds-of-list-at-point)
@@ -258,7 +296,7 @@ E.g.:
 
 ;;  Filenames
 
-(defvar thing-at-point-file-name-chars "-~/[:alnum:]_.${}#%,:"
+(defvar thing-at-point-file-name-chars "-@~/[:alnum:]_.${}#%,:"
   "Characters allowable in filenames.")
 
 (define-thing-chars filename thing-at-point-file-name-chars)
@@ -278,7 +316,7 @@ If nil, construct the regexp from `thing-at-point-uri-schemes'.")
   "Regexp matching a URI without a scheme component.")
 
 (defvar thing-at-point-uri-schemes
-  ;; Officials from http://www.iana.org/assignments/uri-schemes.html
+  ;; Officials from https://www.iana.org/assignments/uri-schemes.html
   '("aaa://" "about:" "acap://" "apt:" "bzr://" "bzr+ssh://"
     "attachment:/" "chrome://" "cid:" "content://" "crid://" "cvs://"
     "data:" "dav:" "dict://" "doi:" "dns:" "dtn:" "feed:" "file:/"
@@ -334,7 +372,7 @@ the bounds of a possible ill-formed URI (one lacking a scheme)."
       ;; may contain parentheses but may not contain spaces (RFC3986).
       (let* ((allowed-chars "--:=&?$+@-Z_[:alpha:]~#,%;*()!'")
 	     (skip-before "^[0-9a-zA-Z]")
-	     (skip-after  ":;.,!?")
+	     (skip-after  ":;.,!?'")
 	     (pt (point))
 	     (beg (save-excursion
 		    (skip-chars-backward allowed-chars)

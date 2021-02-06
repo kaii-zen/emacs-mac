@@ -242,6 +242,22 @@
     (should (= (cl-the integer (cl-incf side-effect)) 1))
     (should (= side-effect 1))))
 
+(ert-deftest cl-lib-test-incf ()
+  (let ((var 0))
+    (should (= (cl-incf var) 1))
+    (should (= var 1)))
+  (let ((alist))
+    (should (= (cl-incf (alist-get 'a alist 0)) 1))
+    (should (= (alist-get 'a alist 0) 1))))
+
+(ert-deftest cl-lib-test-decf ()
+  (let ((var 1))
+    (should (= (cl-decf var) 0))
+    (should (= var 0)))
+  (let ((alist))
+    (should (= (cl-decf (alist-get 'a alist 0)) -1))
+    (should (= (alist-get 'a alist 0) -1))))
+
 (ert-deftest cl-lib-test-plusp ()
   (should-not (cl-plusp -1.0e+INF))
   (should-not (cl-plusp -1.5e2))
@@ -527,15 +543,7 @@
                            (apply (lambda (x) (+ x 1)) (list 8)))))
                  '(5 (6 5) (6 6) 9))))
 
-(defun cl-lib-tests--dummy-function ()
-  ;; Dummy function to see if the file is compiled.
-  t)
-
 (ert-deftest cl-lib-defstruct-record ()
-  ;; This test fails when compiled, see Bug#24402/27718.
-  :expected-result (if (byte-code-function-p
-                        (symbol-function 'cl-lib-tests--dummy-function))
-                       :failed :passed)
   (cl-defstruct foo x)
   (let ((x (make-foo :x 42)))
     (should (recordp x))
@@ -550,6 +558,7 @@
     (should (eq (type-of x) 'vector))
 
     (cl-old-struct-compat-mode 1)
+    (defvar cl-struct-foo)
     (let ((cl-struct-foo (cl--struct-get-class 'foo)))
       (setf (symbol-function 'cl-struct-foo) :quick-object-witness-check)
       (should (eq (type-of x) 'foo))

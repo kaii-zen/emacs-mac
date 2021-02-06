@@ -2286,7 +2286,7 @@ Ignore byte-compiler warnings you might see."
 	    (setq contents
 		  (nconc
 		   (if (and (car dirs) (not full))
-		       (mapcar (function (lambda (name) (concat (car dirs) name)))
+                       (mapcar (lambda (name) (concat (car dirs) name))
 			       this-dir-contents)
 		     this-dir-contents)
 		   contents))))
@@ -2303,10 +2303,6 @@ Ignore byte-compiler warnings you might see."
 (if (featurep 'xemacs)
     (defvaralias 'vhdl-last-input-event 'last-input-char)
   (defvaralias 'vhdl-last-input-event 'last-input-event))
-
-;; `help-print-return-message' changed to `print-help-return-message' in Emacs
-;;;(unless (fboundp 'help-print-return-message)
-;;;  (defalias 'help-print-return-message 'print-help-return-message))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Compatibility with older VHDL Mode versions
@@ -2567,7 +2563,7 @@ conversion."
 
 (defun vhdl-sort-alist (alist)
   "Sort ALIST."
-  (sort alist (function (lambda (a b) (string< (car a) (car b))))))
+  (sort alist (lambda (a b) (string< (car a) (car b)))))
 
 (defun vhdl-get-subdirs (directory)
   "Recursively get subdirectories of DIRECTORY."
@@ -2945,10 +2941,9 @@ STRING are replaced by `-' and substrings are converted to lower case."
 ;; set up electric character functions to work with
 ;; `delete-selection-mode' (Emacs) and `pending-delete-mode' (XEmacs)
 (mapc
- (function
-  (lambda (sym)
-    (put sym 'delete-selection t)	; for `delete-selection-mode' (Emacs)
-    (put sym 'pending-delete t)))	; for `pending-delete-mode' (XEmacs)
+ (lambda (sym)
+   (put sym 'delete-selection t)	; for `delete-selection-mode' (Emacs)
+   (put sym 'pending-delete t))	; for `pending-delete-mode' (XEmacs)
  '(vhdl-electric-space
    vhdl-electric-tab
    vhdl-electric-return
@@ -3321,7 +3316,7 @@ STRING are replaced by `-' and substrings are converted to lower case."
 	(setq menu-list
 	      (if vhdl-project-sort
 		  (sort menu-list
-			(function (lambda (a b) (string< (elt a 0) (elt b 0)))))
+                        (lambda (a b) (string< (elt a 0) (elt b 0))))
 		(nreverse menu-list)))
 	(vhdl-menu-split menu-list "Project"))
       '("--" "--"
@@ -4209,9 +4204,11 @@ STRING are replaced by `-' and substrings are converted to lower case."
 (defun vhdl-update-mode-menu ()
   "Update VHDL Mode menu."
   (interactive)
-  (easy-menu-remove vhdl-mode-menu-list) ; for XEmacs
+  (when (featurep 'xemacs)
+    (easy-menu-remove vhdl-mode-menu-list))
   (setq vhdl-mode-menu-list (vhdl-create-mode-menu))
-  (easy-menu-add vhdl-mode-menu-list)	; for XEmacs
+  (when (featurep 'xemacs)
+    (easy-menu-add vhdl-mode-menu-list))
   (easy-menu-define vhdl-mode-menu vhdl-mode-map
 		    "Menu keymap for VHDL Mode." vhdl-mode-menu-list))
 
@@ -4317,7 +4314,8 @@ The directory of the current source file is scanned."
     (push ["*Rescan*" vhdl-add-source-files-menu t] menu-list)
     (push "Sources" menu-list)
     ;; Create menu
-    (easy-menu-add menu-list)
+    (when (featurep 'xemacs)
+      (easy-menu-add menu-list))
     (easy-menu-define vhdl-sources-menu newmap
 		      "VHDL source files menu" menu-list))
   (message ""))
@@ -4930,7 +4928,8 @@ Key bindings:
   ;; add source file menu
   (if vhdl-source-file-menu (vhdl-add-source-files-menu))
   ;; add VHDL menu
-  (easy-menu-add vhdl-mode-menu-list)	; for XEmacs
+  (when (featurep 'xemacs)
+    (easy-menu-add vhdl-mode-menu-list))
   (easy-menu-define vhdl-mode-menu vhdl-mode-map
 		    "Menu keymap for VHDL Mode." vhdl-mode-menu-list)
   ;; initialize hideshow and add menu
@@ -5340,9 +5339,6 @@ Key bindings:
 (defvar vhdl-reserved-words-regexp nil
   "Regexp for additional reserved words.")
 
-(defvar vhdl-directive-keywords-regexp nil
-  "Regexp for compiler directive keywords.")
-
 (defun vhdl-upcase-list (condition list)
   "Upcase all elements in LIST based on CONDITION."
   (when condition
@@ -5420,9 +5416,6 @@ Key bindings:
 		  (concat vhdl-forbidden-syntax "\\|"))
 		(regexp-opt vhdl-reserved-words)
 		"\\)\\>"))
-  (setq vhdl-directive-keywords-regexp
-	(concat "\\<\\(" (mapconcat 'regexp-quote
-				    vhdl-directive-keywords "\\|") "\\)\\>"))
   (vhdl-abbrev-list-init))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -5572,9 +5565,8 @@ offset for that syntactic element.  Optional ADD-P says to add SYMBOL to
 			    (if current-prefix-arg " or add" "")
 			    ": ")
 		    (mapcar
-		     (function
-		      (lambda (langelem)
-			(cons (format "%s" (car langelem)) nil)))
+                     (lambda (langelem)
+                       (cons (format "%s" (car langelem)) nil))
 		     vhdl-offsets-alist)
 		    nil (not current-prefix-arg)
 		    ;; initial contents tries to be the last element
@@ -5621,26 +5613,24 @@ argument.  The styles are chosen from the `vhdl-style-alist' variable."
 	(error "ERROR:  Invalid VHDL indentation style `%s'" style))
     ;; set all the variables
     (mapc
-     (function
-      (lambda (varentry)
-	(let ((var (car varentry))
-	      (val (cdr varentry)))
-	  ;; special case for vhdl-offsets-alist
-	  (if (not (eq var 'vhdl-offsets-alist))
-	      (set (if local (make-local-variable var) var) val)
-	    ;; reset vhdl-offsets-alist to the default value first
-	    (set (if local (make-local-variable var) var)
-                 (copy-alist vhdl-offsets-alist-default))
-	    ;; now set the langelems that are different
-	    (mapcar
-	     (function
-	      (lambda (langentry)
-		(let ((langelem (car langentry))
-		      (offset (cdr langentry)))
-		  (vhdl-set-offset langelem offset)
-		  )))
-	     val))
-	  )))
+     (lambda (varentry)
+       (let ((var (car varentry))
+             (val (cdr varentry)))
+         ;; special case for vhdl-offsets-alist
+         (if (not (eq var 'vhdl-offsets-alist))
+             (set (if local (make-local-variable var) var) val)
+           ;; reset vhdl-offsets-alist to the default value first
+           (set (if local (make-local-variable var) var)
+                (copy-alist vhdl-offsets-alist-default))
+           ;; now set the langelems that are different
+           (mapcar
+            (lambda (langentry)
+              (let ((langelem (car langentry))
+                    (offset (cdr langentry)))
+                (vhdl-set-offset langelem offset)
+                ))
+            val))
+         ))
      vars))
   (vhdl-keep-region-active))
 
@@ -7584,12 +7574,11 @@ ENDPOS is encountered."
 	(expurgated))
     ;; remove the library unit symbols
     (mapc
-     (function
-      (lambda (elt)
-	(if (memq (car elt) '(entity configuration context package
-				     package-body architecture))
-	    nil
-	  (setq expurgated (append expurgated (list elt))))))
+     (lambda (elt)
+       (if (memq (car elt) '(entity configuration context package
+                                    package-body architecture))
+           nil
+         (setq expurgated (append expurgated (list elt)))))
      actual)
     (if (and (not arg) expected (listp expected))
 	(if (not (equal expected expurgated))
@@ -7956,7 +7945,7 @@ the token in MATCH."
 	   (push (cons start length) comment-list))
 	 (beginning-of-line 2))
        (setq comment-list
-	     (sort comment-list (function (lambda (a b) (> (car a) (car b))))))
+             (sort comment-list (lambda (a b) (> (car a) (car b)))))
        ;; reduce start positions
        (setq start-list (list (caar comment-list)))
        (setq comment-list (cdr comment-list))
@@ -13635,7 +13624,10 @@ This does background highlighting of translate-off regions.")
 			    vhdl-template-prompt-syntax ">\\)")
 		    2 'vhdl-font-lock-prompt-face t)
 	      (list (concat "--\\s-*"
-			    vhdl-directive-keywords-regexp "\\s-+\\(.*\\)$")
+                            "\\<"
+                            (regexp-opt vhdl-directive-keywords t)
+                            "\\>"
+			     "\\s-+\\(.*\\)$")
 		    2 'vhdl-font-lock-directive-face t)
 	      ;; highlight c-preprocessor directives
 	      (list "^#[ \t]*\\(\\w+\\)\\([ \t]+\\(\\w+\\)\\)?"
@@ -15889,8 +15881,7 @@ NO-POSITION non-nil means do not re-position cursor."
 	    (setq path-list-1
 		  (append
 		   (mapcar
-		    (function
-		     (lambda (var) (concat path-beg var path-end)))
+                    (lambda (var) (concat path-beg var path-end))
 		    (let ((all-list (vhdl-directory-files
 				     (match-string 2 dir) t
 				     (concat "\\<" (wildcard-to-regexp
@@ -16148,7 +16139,7 @@ expansion function)."
 
 ;; initialize speedbar
 (if (not (boundp 'speedbar-frame))
-    (add-hook 'speedbar-load-hook 'vhdl-speedbar-initialize)
+    (with-no-warnings (add-hook 'speedbar-load-hook 'vhdl-speedbar-initialize))
   (vhdl-speedbar-initialize)
   (when speedbar-frame (vhdl-speedbar-refresh)))
 
@@ -17443,8 +17434,8 @@ specified by a target."
 	(setq tmp-list (cdr tmp-list)))
       (setq rule-alist			; sort by first rule target
 	    (sort rule-alist
-		  (function (lambda (a b)
-			      (string< (car (cadr a)) (car (cadr b)))))))
+                  (lambda (a b)
+                    (string< (car (cadr a)) (car (cadr b))))))
       ;; open and clear Makefile
       (set-buffer (find-file-noselect makefile-path-name t t))
       (erase-buffer)
@@ -17755,16 +17746,15 @@ specified by a target."
        'vhdl-word-completion-in-minibuffer
        'vhdl-underscore-is-part-of-word
        'vhdl-mode-hook)
-      (function
-       (lambda ()
-	 (insert
-	  (if vhdl-special-indent-hook
-	      (concat "\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
-		      "vhdl-special-indent-hook is set to '"
-		      (format "%s" vhdl-special-indent-hook)
-		      ".\nPerhaps this is your problem?\n"
-		      "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n")
-	    "\n"))))
+      (lambda ()
+        (insert
+         (if vhdl-special-indent-hook
+             (concat "\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+                     "vhdl-special-indent-hook is set to '"
+                     (format "%s" vhdl-special-indent-hook)
+                     ".\nPerhaps this is your problem?\n"
+                     "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n\n")
+           "\n")))
       nil
       "Hi Reto,"))))
 

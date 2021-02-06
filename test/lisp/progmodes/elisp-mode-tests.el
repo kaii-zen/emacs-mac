@@ -194,7 +194,7 @@
   (dotimes (i 3)
     (should
      (equal (elisp-mode-tests--face-propertized-string
-             (elisp--highlight-function-argument 'foo "(A B C)" (1+ i) "foo: "))
+             (elisp--highlight-function-argument 'foo "(A B C)" (1+ i)))
             (propertize (nth i '("A" "B" "C"))
                         'face 'eldoc-highlight-function-argument)))))
 
@@ -206,7 +206,7 @@
     (cl-flet ((bold-arg (i)
                (elisp-mode-tests--face-propertized-string
                 (elisp--highlight-function-argument
-                 'foo "(PROMPT LST &key A B C)" i "foo: "))))
+                 'foo "(PROMPT LST &key A B C)" i))))
       (should-not (bold-arg 0))
       (progn (forward-sexp) (forward-char))
       (should (equal (bold-arg 1) "PROMPT"))
@@ -226,7 +226,7 @@
     (cl-flet ((bold-arg (i)
                (elisp-mode-tests--face-propertized-string
                 (elisp--highlight-function-argument
-                 'foo "(X &key A B C)" i "foo: "))))
+                 'foo "(X &key A B C)" i))))
       (should-not (bold-arg 0))
       ;; The `:b' specifies positional arg `X'.
       (progn (forward-sexp) (forward-char))
@@ -314,7 +314,19 @@
     (let* ((xref (pop xrefs))
            (expected (pop expected-xrefs))
            (expected-xref (or (when (consp expected) (car expected)) expected))
-           (expected-source (when (consp expected) (cdr expected))))
+           (expected-source (when (consp expected) (cdr expected)))
+           (xref-file (xref-elisp-location-file (oref xref location)))
+           (expected-file (xref-elisp-location-file
+                           (oref expected-xref location))))
+
+      ;; Make sure file names compare as strings.
+      (when (file-name-absolute-p xref-file)
+        (setf (xref-elisp-location-file (oref xref location))
+              (file-truename (xref-elisp-location-file (oref xref location)))))
+      (when (file-name-absolute-p expected-file)
+        (setf (xref-elisp-location-file (oref expected-xref location))
+              (file-truename (xref-elisp-location-file
+                              (oref expected-xref location)))))
 
       ;; Downcase the filenames for case-insensitive file systems.
       (when xref--case-insensitive
@@ -809,6 +821,74 @@ to (xref-elisp-test-descr-to-target xref)."
     (emacs-lisp-mode)
     (insert "?\\N{HEAVY CHECK MARK}")
     (should (equal (elisp--preceding-sexp) ?\N{HEAVY CHECK MARK}))))
+
+(ert-deftest elisp-indent-basic ()
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (let ((orig "(defun x ()
+  (print (quote ( thingy great
+		  stuff)))
+  (print (quote (thingy great
+			stuff))))"))
+      (insert orig)
+      (indent-region (point-min) (point-max))
+      (should (equal (buffer-string) orig)))))
+
+(defun test--font (form search)
+  (with-temp-buffer
+    (emacs-lisp-mode)
+    (if (stringp form)
+        (insert form)
+      (pp form (current-buffer)))
+    (font-lock-debug-fontify)
+    (goto-char (point-min))
+    (and (re-search-forward search nil t)
+         (get-text-property (match-beginning 1) 'face))))
+
+(ert-deftest test-elisp-font-keywords-1 ()
+  ;; Special form.
+  (should (eq (test--font '(if foo bar) "(\\(if\\)")
+              'font-lock-keyword-face))
+  ;; Macro.
+  (should (eq (test--font '(when foo bar) "(\\(when\\)")
+              'font-lock-keyword-face))
+  (should (eq (test--font '(condition-case nil
+                               (foo)
+                             (error (if a b)))
+                          "(\\(if\\)")
+              'font-lock-keyword-face))
+  (should (eq (test--font '(condition-case nil
+                               (foo)
+                             (when (if a b)))
+                          "(\\(when\\)")
+              'nil)))
+
+(ert-deftest test-elisp-font-keywords-2 ()
+  (should (eq (test--font '(condition-case nil
+                               (foo)
+                             (error (when a b)))
+                          "(\\(when\\)")
+              'font-lock-keyword-face)))
+
+(ert-deftest test-elisp-font-keywords-3 ()
+  (should (eq (test--font '(setq a '(if when zot))
+                          "(\\(if\\)")
+              nil)))
+
+(ert-deftest test-elisp-font-keywords-4 ()
+  :expected-result :failed ; FIXME bug#43265
+  (should (eq (test--font '(condition-case nil
+                               (foo)
+                             ((if foo) (when a b)))
+                          "(\\(if\\)")
+              nil)))
+
+(ert-deftest test-elisp-font-keywords-5 ()
+  (should (eq (test--font '(condition-case (when a)
+                               (foo)
+                             (error t))
+                          "(\\(when\\)")
+              nil)))
 
 (provide 'elisp-mode-tests)
 ;;; elisp-mode-tests.el ends here

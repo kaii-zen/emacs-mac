@@ -5,18 +5,20 @@
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords: languages, c
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -48,7 +50,7 @@ SOURCE."
   ;; TODO: if you can understand it, use `compilation-mode's regexps
   ;; or even some of its machinery here.
   ;;
-  ;;    (set (make-local-variable 'compilation-locs)
+  ;;    (setq-local compilation-locs
   ;;         (make-hash-table :test 'equal :weakness 'value))
   ;;    (compilation-parse-errors (point-min) (point-max)
   ;;                              'gnu 'gcc-include)

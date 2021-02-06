@@ -4,7 +4,7 @@
 
 ;; Author: David Ponce <david@dponce.com>
 ;; Created: 24 Mar 2001
-;; Version: 1.6
+;; Old-Version: 1.6
 ;; Keywords: convenience
 
 ;; This file is part of GNU Emacs.
@@ -429,7 +429,7 @@ dragging.  See also the variable `ruler-mode-dragged-symbol'."
          ;; `ding' flushes the next messages about setting goal
          ;; column.  So here I force fetch the event(mouse-2) and
          ;; throw away.
-         (read-event)
+         (read--potential-mouse-event)
          ;; Ding BEFORE `message' is OK.
          (when ruler-mode-set-goal-column-ding-flag
            (ding))
@@ -460,7 +460,7 @@ the mouse has been clicked."
     (track-mouse
       ;; Signal the display engine to freeze the mouse pointer shape.
       (setq track-mouse 'dragging)
-      (while (mouse-movement-p (setq event (read-event)))
+      (while (mouse-movement-p (setq event (read--potential-mouse-event)))
         (setq drags (1+ drags))
         (when (eq window (posn-window (event-end event)))
           (ruler-mode-mouse-drag-any-column event)
@@ -572,10 +572,9 @@ This variable is expected to be made buffer-local by modes.")
 Call `ruler-mode-ruler-function' to compute the ruler value.")
 
 ;;;###autoload
-(defvar ruler-mode nil
+(defvar-local ruler-mode nil
   "Non-nil if Ruler mode is enabled.
 Use the command `ruler-mode' to change this variable.")
-(make-variable-buffer-local 'ruler-mode)
 
 (defun ruler--save-header-line-format ()
   "Install the header line format for Ruler mode.
@@ -584,8 +583,8 @@ format first."
   (when (and (not ruler-mode)
 	     (local-variable-p 'header-line-format)
 	     (not (local-variable-p 'ruler-mode-header-line-format-old)))
-    (set (make-local-variable 'ruler-mode-header-line-format-old)
-	 header-line-format))
+    (setq-local ruler-mode-header-line-format-old
+                header-line-format))
   (setq header-line-format ruler-mode-header-line-format))
 
 ;;;###autoload

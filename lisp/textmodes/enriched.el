@@ -165,10 +165,9 @@ execute malicious Lisp code, if that code came from an external source."
   :version "26.1"
   :group 'enriched)
 
-(defvar enriched-old-bindings nil
+(defvar-local enriched-old-bindings nil
   "Store old variable values that we change when entering mode.
 The value is a list of \(VAR VALUE VAR VALUE...).")
-(make-variable-buffer-local 'enriched-old-bindings)
 
 ;; The next variable is buffer local if and only if Enriched mode is
 ;; enabled.  The buffer local value records whether
@@ -247,9 +246,8 @@ Commands:
 	       (list 'buffer-display-table buffer-display-table
 		     'default-text-properties default-text-properties
 		     'use-hard-newlines use-hard-newlines))
-	 (make-local-variable 'enriched-default-text-properties-local-flag)
-	 (setq enriched-default-text-properties-local-flag
-	       (local-variable-p 'default-text-properties))
+         (setq-local enriched-default-text-properties-local-flag
+                     (local-variable-p 'default-text-properties))
 	 (make-local-variable 'default-text-properties)
 	 (setq buffer-display-table  enriched-display-table)
 	 (use-hard-newlines 1 (if enriched-rerun-flag 'never nil))

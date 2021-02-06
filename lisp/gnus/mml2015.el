@@ -1,4 +1,4 @@
-;;; mml2015.el --- MIME Security with Pretty Good Privacy (PGP)
+;;; mml2015.el --- MIME Security with Pretty Good Privacy (PGP)  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2000-2021 Free Software Foundation, Inc.
 
@@ -185,7 +185,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
       (cadr err)
     (format "%S" (cdr err))))
 
-(defun mml2015-mailcrypt-decrypt (handle ctl)
+(defun mml2015-mailcrypt-decrypt (handle _ctl)
   (catch 'error
     (let (child handles result)
       (unless (setq child (mm-find-part-by-type
@@ -293,6 +293,8 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 		   (substring alg (match-end 0))
 		 alg))))
 
+(autoload 'gnus-get-buffer-create "gnus")
+
 (defun mml2015-mailcrypt-verify (handle ctl)
   (catch 'error
     (let (part)
@@ -330,7 +332,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 	      (replace-match "-----BEGIN PGP SIGNATURE-----" t t))
 	  (if (re-search-forward "^-----END PGP [^-]+-----\r?$" nil t)
 	      (replace-match "-----END PGP SIGNATURE-----" t t)))
-	(let ((mc-gpg-debug-buffer (get-buffer-create " *gnus gpg debug*")))
+	(let ((mc-gpg-debug-buffer (gnus-get-buffer-create " *gnus gpg debug*")))
 	  (unless (condition-case err
 		      (prog1
 			  (funcall mml2015-verify-function)
@@ -359,7 +361,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
       handle)))
 
 (defun mml2015-mailcrypt-clear-verify ()
-  (let ((mc-gpg-debug-buffer (get-buffer-create " *gnus gpg debug*")))
+  (let ((mc-gpg-debug-buffer (gnus-get-buffer-create " *gnus gpg debug*")))
     (if (condition-case err
 	    (prog1
 		(funcall mml2015-verify-function)
@@ -477,6 +479,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 (defvar pgg-default-user-id)
 (defvar pgg-errors-buffer)
 (defvar pgg-output-buffer)
+(defvar pgg-text-mode)
 
 (autoload 'pgg-decrypt-region "pgg")
 (autoload 'pgg-verify-region "pgg")
@@ -484,10 +487,10 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 (autoload 'pgg-encrypt-region "pgg")
 (autoload 'pgg-parse-armor "pgg-parse")
 
-(defun mml2015-pgg-decrypt (handle ctl)
+(defun mml2015-pgg-decrypt (handle _ctl)
   (catch 'error
     (let ((pgg-errors-buffer mml2015-result-buffer)
-	  child handles result decrypt-status)
+	  child handles decrypt-status) ;; result
       (unless (setq child (mm-find-part-by-type
 			   (cdr handle)
 			   "application/octet-stream" nil t))
@@ -710,7 +713,6 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 (autoload 'epg-verify-string "epg")
 (autoload 'epg-sign-string "epg")
 (autoload 'epg-encrypt-string "epg")
-(autoload 'epg-passphrase-callback-function "epg")
 (autoload 'epg-context-set-passphrase-callback "epg")
 (autoload 'epg-key-sub-key-list "epg")
 (autoload 'epg-sub-key-capability "epg")
@@ -725,6 +727,8 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 (autoload 'epg-expand-group "epg-config")
 (autoload 'epa-select-keys "epa")
 
+(autoload 'gnus-create-image "gnus-util")
+
 (defun mml2015-epg-key-image (key-id)
   "Return the image of a key, if any."
   (with-temp-buffer
@@ -732,8 +736,9 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
     (let* ((coding-system-for-write 'binary)
            (coding-system-for-read 'binary)
            (data (shell-command-to-string
-                  (format "%s --list-options no-show-photos --attribute-fd 3 --list-keys %s 3>&1 >/dev/null 2>&1"
-                          (shell-quote-argument epg-gpg-program) key-id))))
+                  (format "%s --list-options no-show-photos --attribute-fd 3 --list-keys %s 3>&1 >%s 2>&1"
+                          (shell-quote-argument epg-gpg-program)
+			  key-id null-device))))
       (when (> (length data) 0)
         (insert (substring data 16))
 	(condition-case nil
@@ -747,7 +752,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
   (let ((key-image (mml2015-epg-key-image key-id)))
     (if (not key-image)
 	""
-      (condition-case error
+      (condition-case nil
 	  (let ((result "  "))
 	    (put-text-property
 	     1 2 'display
@@ -766,10 +771,10 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 (defun mml2015-epg-verify-result-to-string (verify-result)
   (mapconcat #'mml2015-epg-signature-to-string verify-result "\n"))
 
-(defun mml2015-epg-decrypt (handle ctl)
+(defun mml2015-epg-decrypt (handle _ctl)
   (catch 'error
     (let ((inhibit-redisplay t)
-	  context plain child handles result decrypt-status)
+	  context plain child handles) ;; decrypt-status result
       (unless (setq child (mm-find-part-by-type
 			   (cdr handle)
 			   "application/octet-stream" nil t))
@@ -847,7 +852,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 (defun mml2015-epg-verify (handle ctl)
   (catch 'error
     (let ((inhibit-redisplay t)
-	  context plain signature-file part signature)
+	  context part signature) ;; plain signature-file
       (when (or (null (setq part (mm-find-raw-part-by-type
 				  ctl (or (mm-handle-multipart-ctl-parameter
 					   ctl 'protocol)
@@ -862,12 +867,13 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 	    signature (mm-get-part signature)
 	    context (epg-make-context))
       (condition-case error
-	  (setq plain (epg-verify-string context signature part))
+	  ;; (setq plain
+	  (epg-verify-string context signature part) ;;)
 	(error
 	 (mm-sec-error 'gnus-info "Failed")
-	 (if (eq (car error) 'quit)
-	     (mm-sec-status 'gnus-details "Quit.")
-	   (mm-sec-status 'gnus-details (mml2015-format-error error)))
+	 (mm-sec-status 'gnus-details (if (eq (car error) 'quit)
+	                                  "Quit."
+	                                (mml2015-format-error error)))
 	 (throw 'error handle)))
       (mm-sec-status 'gnus-info
        (mml2015-epg-verify-result-to-string
@@ -949,7 +955,6 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
 ;;; General wrapper
 
 (autoload 'gnus-buffer-live-p "gnus-util")
-(autoload 'gnus-get-buffer-create "gnus")
 
 (defun mml2015-clean-buffer ()
   (if (gnus-buffer-live-p mml2015-result-buffer)
@@ -975,7 +980,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
       handle)))
 
 ;;;###autoload
-(defun mml2015-decrypt-test (handle ctl)
+(defun mml2015-decrypt-test (_handle _ctl)
   mml2015-use)
 
 ;;;###autoload
@@ -987,7 +992,7 @@ If set, it overrides the setting of `mml2015-sign-with-sender'."
       handle)))
 
 ;;;###autoload
-(defun mml2015-verify-test (handle ctl)
+(defun mml2015-verify-test (_handle _ctl)
   mml2015-use)
 
 ;;;###autoload

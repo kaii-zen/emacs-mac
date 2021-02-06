@@ -1411,10 +1411,15 @@ xg_free_frame_widgets (struct frame *f)
       FRAME_X_WINDOW (f) = 0; /* Set to avoid XDestroyWindow in xterm.c */
       FRAME_X_RAW_DRAWABLE (f) = 0;
       FRAME_GTK_OUTER_WIDGET (f) = 0;
+      if (x->ttip_widget)
+        {
+          /* Remove ttip_lbl from ttip_widget's custom slot before
+             destroying it, to avoid double-free (Bug#41239).  */
+          gtk_tooltip_set_custom (x->ttip_widget, NULL);
+          g_object_unref (G_OBJECT (x->ttip_widget));
+        }
       if (x->ttip_lbl)
         gtk_widget_destroy (x->ttip_lbl);
-      if (x->ttip_widget)
-        g_object_unref (G_OBJECT (x->ttip_widget));
     }
 }
 
@@ -2939,14 +2944,11 @@ xg_get_menu_item_label (GtkMenuItem *witem)
 static bool
 xg_item_label_same_p (GtkMenuItem *witem, const char *label)
 {
-  bool is_same = 0;
   char *utf8_label = get_utf8_string (label);
   const char *old_label = witem ? xg_get_menu_item_label (witem) : 0;
 
-  if (! old_label && ! utf8_label)
-    is_same = 1;
-  else if (old_label && utf8_label)
-    is_same = strcmp (utf8_label, old_label) == 0;
+  bool is_same = (!old_label == !utf8_label
+		  && (!old_label || strcmp (utf8_label, old_label) == 0));
 
   if (utf8_label) g_free (utf8_label);
 
@@ -4436,13 +4438,6 @@ xg_tool_bar_callback (GtkWidget *w, gpointer client_data)
   key = AREF (f->tool_bar_items, idx + TOOL_BAR_ITEM_KEY);
   XSETFRAME (frame, f);
 
-  /* We generate two events here.  The first one is to set the prefix
-     to `(tool_bar)', see keyboard.c.  */
-  event.kind = TOOL_BAR_EVENT;
-  event.frame_or_window = frame;
-  event.arg = frame;
-  kbd_buffer_store_event (&event);
-
   event.kind = TOOL_BAR_EVENT;
   event.frame_or_window = frame;
   event.arg = key;
@@ -5115,7 +5110,7 @@ update_frame_tool_bar (struct frame *f)
           else
             idx = -1;
 
-          img_id = lookup_image (f, image);
+          img_id = lookup_image (f, image, -1);
           img = IMAGE_FROM_ID (f, img_id);
           prepare_image_for_display (f, img);
 

@@ -170,11 +170,10 @@ definition."
 
 ;;; Core bindings API
 ;;
-(defvar mode-local-symbol-table nil
+(defvar-local mode-local-symbol-table nil
   "Buffer local mode bindings.
 These symbols provide a hook for a `major-mode' to specify specific
 behaviors.  Use the function `mode-local-bind' to define new bindings.")
-(make-variable-buffer-local 'mode-local-symbol-table)
 
 (defvar mode-local-active-mode nil
   "Major mode in which bindings are active.")
@@ -314,7 +313,7 @@ Elements are (SYMBOL . PREVIOUS-VALUE), describing one variable."
     ;; Do the normal thing.
     (let (modes table old-locals)
       (unless mode
-	(set (make-local-variable 'mode-local--init-mode) major-mode)
+        (setq-local mode-local--init-mode major-mode)
 	(setq mode major-mode))
       ;; Get MODE's parents & MODE in the right order.
       (while mode

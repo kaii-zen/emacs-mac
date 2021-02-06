@@ -69,7 +69,6 @@
 
 (require 'md4)
 (require 'hmac-md5)
-(require 'calc)
 
 (defgroup ntlm nil
   "NTLM (NT LanManager) authentication."
@@ -133,32 +132,93 @@ is not given."
 	    domain				;buffer field
 	    ))))
 
-(defun ntlm-compute-timestamp ()
-  "Compute an NTLMv2 timestamp.
+;; Poor man's bignums: natural numbers represented as lists of bytes
+;; in little-endian order.
+;; When this code no longer needs to run on Emacs 26 or older, all this
+;; silliness should be simplified to use ordinary Lisp integers.
+
+(eval-and-compile                       ; for compile-time simplification
+  (defun ntlm--bignat-of-int (x)
+    "Convert the natural number X into a bignat."
+    (declare (pure t))
+    (and (not (zerop x))
+         (cons (logand x #xff) (ntlm--bignat-of-int (ash x -8)))))
+
+  (defun ntlm--bignat-add (a b &optional carry)
+    "Add the bignats A and B and the natural number CARRY."
+    (declare (pure t))
+    (and (or a b (and carry (not (zerop carry))))
+         (let ((s (+ (if a (car a) 0)
+                     (if b (car b) 0)
+                     (or carry 0))))
+           (cons (logand s #xff)
+                 (ntlm--bignat-add (cdr a) (cdr b) (ash s -8))))))
+
+  (defun ntlm--bignat-shift-left (x n)
+    "Multiply the bignat X by 2^{8N}."
+    (declare (pure t))
+    (if (zerop n) x (ntlm--bignat-shift-left (cons 0 x) (1- n))))
+
+  (defun ntlm--bignat-mul-byte (a b)
+    "Multiply the bignat A with the byte B."
+    (declare (pure t))
+    (let ((p (mapcar (lambda (x) (* x b)) a)))
+      (ntlm--bignat-add
+       (mapcar (lambda (x) (logand x #xff)) p)
+       (cons 0 (mapcar (lambda (x) (ash x -8)) p)))))
+
+  (defun ntlm--bignat-mul (a b)
+    "Multiply the bignats A and B."
+    (declare (pure t))
+    (and a b (ntlm--bignat-add (ntlm--bignat-mul-byte a (car b))
+                               (cons 0 (ntlm--bignat-mul a (cdr b))))))
+
+  (defun ntlm--bignat-of-string (s)
+    "Convert the string S (in decimal) to a bignat."
+    (declare (pure t))
+    (ntlm--bignat-of-digits (reverse (string-to-list s))))
+
+  (defun ntlm--bignat-of-digits (digits)
+    "Convert the little-endian list DIGITS of decimal digits to a bignat."
+    (declare (pure t))
+    (and digits
+         (ntlm--bignat-add
+          nil
+          (ntlm--bignat-mul-byte (ntlm--bignat-of-digits (cdr digits)) 10)
+          (- (car digits) ?0))))
+
+  (defun ntlm--bignat-to-int64 (x)
+    "Convert the bignat X to a 64-bit little-endian number as a string."
+    (declare (pure t))
+    (apply #'unibyte-string (mapcar (lambda (n) (or (nth n x) 0))
+                                    (number-sequence 0 7))))
+  )
+
+(defun ntlm--time-to-timestamp (time)
+  "Convert TIME to an NTLMv2 timestamp.
 Return a unibyte string representing the number of tenths of a
 microsecond since January 1, 1601 as a 64-bit little-endian
-signed integer."
-  ;; FIXME: This can likely be significantly simplified using the new
-  ;; bignums support!
-  (let* ((s-to-tenths-of-us "mul(add(lsh($1,16),$2),10000000)")
-	 (us-to-tenths-of-us "mul($3,10)")
-	 (ps-to-tenths-of-us "idiv($4,100000)")
-	 (tenths-of-us-since-jan-1-1601
-	  (apply #'calc-eval (concat "add(add(add("
-				    s-to-tenths-of-us ","
-				    us-to-tenths-of-us "),"
-				    ps-to-tenths-of-us "),"
-				    ;; tenths of microseconds between
-				    ;; 1601-01-01 and 1970-01-01
-				    "116444736000000000)")
-		 'rawnum (time-convert nil 'list)))
-	 result-bytes)
-    (dotimes (_byte 8)
-      (push (calc-eval "and($1,16#FF)" 'rawnum tenths-of-us-since-jan-1-1601)
-	    result-bytes)
-      (setq tenths-of-us-since-jan-1-1601
-	    (calc-eval "rsh($1,8,64)" 'rawnum tenths-of-us-since-jan-1-1601)))
-    (apply #'unibyte-string (nreverse result-bytes))))
+signed integer.  TIME must be on the form (HIGH LOW USEC PSEC)."
+  (let* ((s-hi (ntlm--bignat-of-int (nth 0 time)))
+         (s-lo (ntlm--bignat-of-int (nth 1 time)))
+         (s (ntlm--bignat-add (ntlm--bignat-shift-left s-hi 2) s-lo))
+         (us*10 (ntlm--bignat-of-int (* (nth 2 time) 10)))
+         (ps/1e5 (ntlm--bignat-of-int (/ (nth 3 time) 100000)))
+	 ;; tenths of microseconds between 1601-01-01 and 1970-01-01
+         (to-unix-epoch (ntlm--bignat-of-string "116444736000000000"))
+         (tenths-of-us-since-jan-1-1601
+          (ntlm--bignat-add
+           (ntlm--bignat-add
+            (ntlm--bignat-add
+             (ntlm--bignat-mul s (ntlm--bignat-of-int 10000000))
+             us*10)
+            ps/1e5)
+           to-unix-epoch)))
+    (ntlm--bignat-to-int64 tenths-of-us-since-jan-1-1601)))
+
+(defun ntlm-compute-timestamp ()
+  "Current time as an NTLMv2 timestamp, as a unibyte string."
+  (ntlm--time-to-timestamp (time-convert nil 'list)))
 
 (defun ntlm-generate-nonce ()
   "Generate a random nonce, not to be used more than once.

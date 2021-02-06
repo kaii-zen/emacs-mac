@@ -1,4 +1,4 @@
-;;; bindings.el --- define standard key bindings and some variables
+;;; bindings.el --- define standard key bindings and some variables  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1985-1987, 1992-1996, 1999-2021 Free Software
 ;; Foundation, Inc.
@@ -199,7 +199,7 @@ mouse-3: Set coding system"
 		(symbol-name buffer-file-coding-system))
       "Buffer coding system: none specified")))
 
-(defvar mode-line-mule-info
+(defvar-local mode-line-mule-info
   `(""
     (current-input-method
      (:propertize ("" current-input-method-title)
@@ -225,7 +225,6 @@ mnemonics of the following coding systems:
   coding system for terminal output (on a text terminal)")
 ;;;###autoload
 (put 'mode-line-mule-info 'risky-local-variable t)
-(make-variable-buffer-local 'mode-line-mule-info)
 
 (defvar mode-line-client
   `(""
@@ -247,7 +246,7 @@ mnemonics of the following coding systems:
   (format "Buffer is %smodified\nmouse-1: Toggle modification state"
 	  (if (buffer-modified-p (window-buffer window)) "" "not ")))
 
-(defvar mode-line-modified
+(defvar-local mode-line-modified
   (list (propertize
 	 "%1*"
 	 'help-echo 'mode-line-read-only-help-echo
@@ -264,9 +263,8 @@ mnemonics of the following coding systems:
   "Mode line construct for displaying whether current buffer is modified.")
 ;;;###autoload
 (put 'mode-line-modified 'risky-local-variable t)
-(make-variable-buffer-local 'mode-line-modified)
 
-(defvar mode-line-remote
+(defvar-local mode-line-remote
   (list (propertize
 	 "%1@"
 	 'mouse-face 'mode-line-highlight
@@ -283,7 +281,6 @@ mnemonics of the following coding systems:
   "Mode line construct to indicate a remote buffer.")
 ;;;###autoload
 (put 'mode-line-remote 'risky-local-variable t)
-(make-variable-buffer-local 'mode-line-remote)
 
 ;; MSDOS frames have window-system, but want the Fn identification.
 (defun mode-line-frame-control ()
@@ -301,12 +298,11 @@ Value is used for `mode-line-frame-identification', which see."
 ;;;###autoload
 (put 'mode-line-frame-identification 'risky-local-variable t)
 
-(defvar mode-line-process nil
+(defvar-local mode-line-process nil
   "Mode line construct for displaying info on process status.
 Normally nil in most modes, since there is no process to display.")
 ;;;###autoload
 (put 'mode-line-process 'risky-local-variable t)
-(make-variable-buffer-local 'mode-line-process)
 
 (defun bindings--define-key (map key item)
   "Define KEY in keymap MAP according to ITEM from a menu.
@@ -411,6 +407,8 @@ zero, otherwise they start from one."
   :type 'boolean
   :group 'mode-line
   :version "26.1")
+(make-obsolete-variable 'column-number-indicator-zero-based
+                        'mode-line-position-column-format "28.1")
 
 (defcustom mode-line-percent-position '(-3 "%p")
   "Specification of \"percentage offset\" of window through buffer.
@@ -431,6 +429,41 @@ displayed in `mode-line-position', a component of the default
   :group 'mode-line)
 (put 'mode-line-percent-position 'risky-local-variable t)
 
+(defcustom mode-line-position-line-format '(" L%l")
+  "Format used to display line numbers in the mode line.
+This is used when `line-number-mode' is switched on.  The \"%l\"
+format spec will be replaced by the line number."
+  :type '(list string)
+  :version "28.1"
+  :group 'mode-line)
+
+(defcustom mode-line-position-column-format '(" C%c")
+  "Format used to display column numbers in the mode line.
+This is used when `column-number-mode' is switched on.  The
+\"%c\" format spec will be replaced by the column number, which
+is zero-based if `column-number-indicator-zero-based' is non-nil,
+and one-based if `column-number-indicator-zero-based' is nil."
+  :type '(list string)
+  :version "28.1"
+  :group 'mode-line)
+
+(defcustom mode-line-position-column-line-format '(" (%l,%c)")
+  "Format used to display combined line/column numbers in the mode line.
+This is used when `column-number-mode' and `line-number-mode' are
+switched on.  The \"%c\" format spec will be replaced by the
+column number, which is zero-based if
+`column-number-indicator-zero-based' is non-nil, and one-based if
+`column-number-indicator-zero-based' is nil."
+  :type '(list string)
+  :version "28.1"
+  :group 'mode-line)
+
+(defconst mode-line-position--column-line-properties
+  (list 'local-map mode-line-column-line-number-mode-map
+        'mouse-face 'mode-line-highlight
+        'help-echo "Line number and Column number\n\
+mouse-1: Display Line and Column Mode Menu"))
+
 (defvar mode-line-position
   `((:propertize
      mode-line-percent-position
@@ -450,38 +483,30 @@ mouse-1: Display Line and Column Mode Menu")))
     (line-number-mode
      ((column-number-mode
        (column-number-indicator-zero-based
-        (10 ,(propertize
-              " (%l,%c)"
-              'local-map mode-line-column-line-number-mode-map
-              'mouse-face 'mode-line-highlight
-              'help-echo "Line number and Column number\n\
-mouse-1: Display Line and Column Mode Menu"))
-        (10 ,(propertize
-              " (%l,%C)"
-              'local-map mode-line-column-line-number-mode-map
-              'mouse-face 'mode-line-highlight
-              'help-echo "Line number and Column number\n\
-mouse-1: Display Line and Column Mode Menu")))
-       (6 ,(propertize
-	    " L%l"
-	    'local-map mode-line-column-line-number-mode-map
-	    'mouse-face 'mode-line-highlight
-	    'help-echo "Line Number\n\
-mouse-1: Display Line and Column Mode Menu"))))
-     ((column-number-mode
-       (column-number-indicator-zero-based
-        (5 ,(propertize
-             " C%c"
-             'local-map mode-line-column-line-number-mode-map
-             'mouse-face 'mode-line-highlight
-             'help-echo "Column number\n\
-mouse-1: Display Line and Column Mode Menu"))
-        (5 ,(propertize
-             " C%C"
-             'local-map mode-line-column-line-number-mode-map
-             'mouse-face 'mode-line-highlight
-             'help-echo "Column number\n\
-mouse-1: Display Line and Column Mode Menu")))))))
+        (10
+         (:propertize
+          mode-line-position-column-line-format
+          ,@mode-line-position--column-line-properties))
+        (10
+         (:propertize
+          (:eval (string-replace
+                  "%c" "%C" (car mode-line-position-column-line-format)))
+          ,@mode-line-position--column-line-properties)))
+       (6
+        (:propertize
+	 mode-line-position-line-format
+         ,@mode-line-position--column-line-properties))))
+     (column-number-mode
+      (column-number-indicator-zero-based
+       (6
+        (:propertize
+         mode-line-position-column-format
+         (,@mode-line-position--column-line-properties)))
+       (6
+        (:propertize
+         (:eval (string-replace
+                 "%c" "%C" (car mode-line-position-column-format)))
+         ,@mode-line-position--column-line-properties))))))
   "Mode line construct for displaying the position in the buffer.
 Normally displays the buffer percentage and, optionally, the
 buffer size, the line number and the column number.")
@@ -514,7 +539,7 @@ mouse-1: Previous buffer\nmouse-3: Next buffer")
 		    'mouse-face 'mode-line-highlight
 		    'local-map mode-line-buffer-identification-keymap)))
 
-(defvar mode-line-buffer-identification
+(defvar-local mode-line-buffer-identification
   (propertized-buffer-identification "%12b")
   "Mode line construct for identifying the buffer being displayed.
 Its default value is (\"%12b\") with some text properties added.
@@ -522,7 +547,6 @@ Major modes that edit things other than ordinary files may change this
 \(e.g. Info, Dired,...)")
 ;;;###autoload
 (put 'mode-line-buffer-identification 'risky-local-variable t)
-(make-variable-buffer-local 'mode-line-buffer-identification)
 
 (defvar mode-line-misc-info
   '((global-mode-string ("" global-mode-string " ")))
@@ -827,7 +851,7 @@ in contrast with \\[forward-char] and \\[backward-char], which
 see."
   (interactive "^p")
   (if visual-order-cursor-movement
-      (dotimes (i (if (numberp n) (abs n) 1))
+      (dotimes (_ (if (numberp n) (abs n) 1))
 	(move-point-visually (if (and (numberp n) (< n 0)) -1 1)))
     (if (eq (current-bidi-paragraph-direction) 'left-to-right)
 	(forward-char n)
@@ -845,7 +869,7 @@ in contrast with \\[forward-char] and \\[backward-char], which
 see."
   (interactive "^p")
   (if visual-order-cursor-movement
-      (dotimes (i (if (numberp n) (abs n) 1))
+      (dotimes (_ (if (numberp n) (abs n) 1))
 	(move-point-visually (if (and (numberp n) (< n 0)) 1 -1)))
     (if (eq (current-bidi-paragraph-direction) 'left-to-right)
 	(backward-char n)
@@ -889,6 +913,7 @@ if `inhibit-field-text-motion' is non-nil."
 
 (define-key narrow-map "n" 'narrow-to-region)
 (define-key narrow-map "w" 'widen)
+(define-key narrow-map "g" 'goto-line-relative)
 
 ;; Quitting
 (define-key global-map "\e\e\e" 'keyboard-escape-quit)
@@ -1383,7 +1408,12 @@ if `inhibit-field-text-motion' is non-nil."
 (define-key ctl-x-map "'" 'expand-abbrev)
 (define-key ctl-x-map "\C-b" 'list-buffers)
 
+(define-key ctl-x-map "\C-j" 'dired-jump)
+(define-key ctl-x-4-map "\C-j" 'dired-jump-other-window)
+
 (define-key ctl-x-map "z" 'repeat)
+
+(define-key ctl-x-map "g" #'revert-buffer)
 
 (define-key esc-map "\C-l" 'reposition-window)
 

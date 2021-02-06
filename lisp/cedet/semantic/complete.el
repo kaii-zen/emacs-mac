@@ -867,9 +867,8 @@ Expected return values are:
 ;; * semantic-collector-try-completion
 ;; * semantic-collector-all-completions
 
-(defvar semantic-collector-per-buffer-list nil
+(defvar-local semantic-collector-per-buffer-list nil
   "List of collectors active in this buffer.")
-(make-variable-buffer-local 'semantic-collector-per-buffer-list)
 
 (defvar semantic-collector-list nil
   "List of global collectors active this session.")
@@ -1635,10 +1634,10 @@ This will not happen if you directly set this variable via `setq'."
   :group 'semantic
   :version "24.3"
   :type 'integer
-  :set '(lambda (sym var)
-	  (set-default sym var)
-	  (when (boundp 'x-max-tooltip-size)
-	    (setcdr x-max-tooltip-size (max (1+ var) (cdr x-max-tooltip-size))))))
+  :set (lambda (sym var)
+         (set-default sym var)
+         (when (boundp 'x-max-tooltip-size)
+           (setcdr x-max-tooltip-size (max (1+ var) (cdr x-max-tooltip-size))))))
 
 
 (defclass semantic-displayer-tooltip (semantic-displayer-traditional)

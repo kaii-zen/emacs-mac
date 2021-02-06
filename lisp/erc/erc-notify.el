@@ -75,13 +75,11 @@ strings."
 
 ;;;; Internal variables
 
-(defvar erc-last-ison nil
+(defvar-local erc-last-ison nil
   "Last ISON information received through `erc-notify-timer'.")
-(make-variable-buffer-local 'erc-last-ison)
 
-(defvar erc-last-ison-time 0
+(defvar-local erc-last-ison-time 0
   "Last time ISON was sent to the server in `erc-notify-timer'.")
-(make-variable-buffer-local 'erc-last-ison-time)
 
 ;;;; Setup
 
@@ -181,7 +179,7 @@ nick from `erc-last-ison' to prevent any further notifications."
   (let ((nick (erc-extract-nick (erc-response.sender parsed))))
     (when (and (erc-member-ignore-case nick erc-notify-list)
 	       (erc-member-ignore-case nick erc-last-ison))
-      (setq erc-last-ison (erc-delete-if
+      (setq erc-last-ison (cl-delete-if
 			   (let ((nick-down (erc-downcase nick)))
 			     (lambda (el)
 			       (string= nick-down (erc-downcase el))))

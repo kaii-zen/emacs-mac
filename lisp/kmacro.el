@@ -172,6 +172,7 @@ macro to be executed before appending to it."
     (define-key map "\C-k" 'kmacro-end-or-call-macro-repeat)
     (define-key map "r"    'apply-macro-to-region-lines)
     (define-key map "q"    'kbd-macro-query)  ;; Like C-x q
+    (define-key map "Q"    'kdb-macro-redisplay)
 
     ;; macro ring
     (define-key map "\C-n" 'kmacro-cycle-ring-next)
@@ -289,7 +290,8 @@ the last increment."
 
 (defun kmacro-set-counter (arg)
   "Set the value of `kmacro-counter' to ARG, or prompt for value if no argument.
-With \\[universal-argument] prefix, reset counter to its value prior to this iteration of the macro."
+With \\[universal-argument] prefix, reset counter to its value prior to this iteration of the
+macro."
   (interactive "NMacro counter value: ")
   (if (not (or defining-kbd-macro executing-kbd-macro))
       (kmacro-display-counter (setq kmacro-initial-counter-value arg))
@@ -924,7 +926,7 @@ The ARG parameter is unused."
 		  nil
 		  (if kmacro-view-last-item
 		      (concat (cond ((= kmacro-view-item-no 2) "2nd")
-				    ((= kmacro-view-item-no 3) "3nd")
+				    ((= kmacro-view-item-no 3) "3rd")
 				    (t (format "%dth" kmacro-view-item-no)))
 			      " previous macro")
 		    "Last macro")))
@@ -1272,7 +1274,8 @@ following additional answers: `insert', `insert-1', `replace', `replace-1',
 (defun kmacro-step-edit-macro ()
   "Step edit and execute last keyboard macro.
 
-To customize possible responses, change the \"bindings\" in `kmacro-step-edit-map'."
+To customize possible responses, change the \"bindings\" in
+`kmacro-step-edit-map'."
   (interactive)
   (let ((kmacro-step-edit-active t)
 	(kmacro-step-edit-new-macro "")
@@ -1295,6 +1298,16 @@ To customize possible responses, change the \"bindings\" in `kmacro-step-edit-ma
 	       (not (equal last-kbd-macro kmacro-step-edit-new-macro)))
       (kmacro-push-ring)
       (setq last-kbd-macro kmacro-step-edit-new-macro))))
+
+(defun kdb-macro-redisplay ()
+  "Force redisplay during kbd macro execution."
+  (interactive)
+  (or executing-kbd-macro
+      defining-kbd-macro
+      (user-error "Not defining or executing kbd macro"))
+  (when executing-kbd-macro
+    (let ((executing-kbd-macro nil))
+      (redisplay))))
 
 (provide 'kmacro)
 

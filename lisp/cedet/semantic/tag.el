@@ -53,6 +53,11 @@
 (declare-function semantic-clear-toplevel-cache "semantic")
 (declare-function semantic-tag-similar-p "semantic/tag-ls")
 
+(define-obsolete-variable-alias 'semantic-token-version
+  'semantic-tag-version "28.1")
+(define-obsolete-variable-alias 'semantic-token-incompatible-version
+  'semantic-tag-incompatible-version "28.1")
+
 (defconst semantic-tag-version "2.0"
   "Version string of semantic tags made with this code.")
 
@@ -1189,7 +1194,7 @@ See also the function `semantic--expand-tag'."
       (setq tag (cdr tag)))
     (null tag)))
 
-(defvar semantic-tag-expand-function nil
+(defvar-local semantic-tag-expand-function nil
   "Function used to expand a tag.
 It is passed each tag production, and must return a list of tags
 derived from it, or nil if it does not need to be expanded.
@@ -1202,7 +1207,6 @@ following definition is easily parsed into one tag:
 
 This function should take this compound tag and turn it into two tags,
 one for A, and the other for B.")
-(make-variable-buffer-local 'semantic-tag-expand-function)
 
 (defun semantic--tag-expand (tag)
   "Convert TAG from a raw state to a cooked state, and expand it.
@@ -1321,32 +1325,6 @@ This function is overridable with the symbol `insert-foreign-tag'."
   "Insert foreign tags into log-edit mode."
   (insert (concat "(" (semantic-format-tag-name foreign-tag) "): ")))
 
-;;; Compatibility
-;;
-(defconst semantic-token-version
-  semantic-tag-version)
-(defconst semantic-token-incompatible-version
-  semantic-tag-incompatible-version)
-
-(defsubst semantic-token-type-parent (tag)
-  "Return the parent of the type that TAG describes.
-The return value is a list.  A value of nil means no parents.
-The `car' of the list is either the parent class, or a list
-of parent classes.  The `cdr' of the list is the list of
-interfaces, or abstract classes which are parents of TAG."
-  (cons (semantic-tag-get-attribute tag :superclasses)
-        (semantic-tag-type-interfaces tag)))
-
-(make-obsolete 'semantic-token-type-parent
-	       "\
-use `semantic-tag-type-superclass' \
-and `semantic-tag-type-interfaces' instead" "23.2")
-
-(semantic-alias-obsolete 'semantic-tag-make-assoc-list
-                         'semantic-tag-make-plist "23.2")
-
-(semantic-varalias-obsolete 'semantic-expand-nonterminal
-                            'semantic-tag-expand-function "23.2")
 
 (provide 'semantic/tag)
 

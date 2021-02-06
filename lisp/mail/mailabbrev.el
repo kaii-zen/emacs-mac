@@ -377,11 +377,11 @@ double-quotes."
 	      (setq result (cons (substring definition start end) result)
 		    start (and end (match-end 0)))))
 	  (setq definition
-		(mapconcat (function (lambda (x)
+                (mapconcat (lambda (x)
 			     (or (mail-resolve-all-aliases-1
-				   (intern-soft (downcase x) mail-abbrevs)
-				   (cons sym so-far))
-				 x)))
+                                  (intern-soft (downcase x) mail-abbrevs)
+                                  (cons sym so-far))
+                                 x))
 			   (nreverse result)
 			   mail-alias-separator-string))
 	  (set sym definition))))
@@ -436,12 +436,12 @@ of a mail alias.  The value is set up, buffer-local, when first needed.")
 	  (_ (aref (standard-syntax-table) ?_))
 	  (w (aref (standard-syntax-table) ?w)))
       (map-char-table
-       (function (lambda (key value)
-		   (if (null value)
-		       ;; Fetch the inherited value
-		       (setq value (aref tab key)))
-		   (if (equal value _)
-		       (set-char-table-range tab key w))))
+       (lambda (key value)
+         (if (null value)
+             ;; Fetch the inherited value
+             (setq value (aref tab key)))
+         (if (equal value _)
+             (set-char-table-range tab key w)))
        tab)
       (modify-syntax-entry ?@ "w" tab)
       (modify-syntax-entry ?% "w" tab)
@@ -534,8 +534,7 @@ of a mail alias.  The value is set up, buffer-local, when first needed.")
 		      (default-directory (expand-file-name "~/"))
 		      (def mail-personal-alias-file))
 		  (read-file-name
-		   (format "Read additional aliases from file (default %s): "
-			    def)
+		   (format-prompt "Read additional aliases from file" def)
 		    default-directory
 		    (expand-file-name def default-directory)
 		    t))))
@@ -548,7 +547,7 @@ of a mail alias.  The value is set up, buffer-local, when first needed.")
 		      (default-directory (expand-file-name "~/"))
 		      (def mail-personal-alias-file))
 		  (read-file-name
-		   (format "Read mail aliases from file (default %s): " def)
+		   (format-prompt "Read mail aliases from file" def)
 		   default-directory
 		   (expand-file-name def default-directory)
 		   t))))

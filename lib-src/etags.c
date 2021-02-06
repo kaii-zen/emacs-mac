@@ -124,6 +124,7 @@ University of California, as described above. */
 #include <binary-io.h>
 #include <intprops.h>
 #include <unlocked-io.h>
+#include <verify.h>
 #include <c-ctype.h>
 #include <c-strcase.h>
 
@@ -1642,19 +1643,10 @@ process_file_name (char *file, language *lang)
 	  char *cmd = concat (cmd1, "' > ", tmp_name);
 #endif
 	  free (cmd1);
-	  int tmp_errno;
-	  if (system (cmd) == -1)
-	    {
-	      inf = NULL;
-	      tmp_errno = EINVAL;
-	    }
-	  else
-	    {
-	      inf = fopen (tmp_name, "r" FOPEN_BINARY);
-	      tmp_errno = errno;
-	    }
+	  inf = (system (cmd) == -1
+		 ? NULL
+		 : fopen (tmp_name, "r" FOPEN_BINARY));
 	  free (cmd);
-	  errno = tmp_errno;
 	}
 
       if (!inf)
@@ -4195,9 +4187,9 @@ C_entries (int c_ext,		/* extension of C */
 	      break;
 	    }
 	  FALLTHROUGH;
-	resetfvdef:
 	case '#': case '~': case '&': case '%': case '/':
 	case '|': case '^': case '!': case '.': case '?':
+	resetfvdef:
 	  if (definedef != dnone)
 	    break;
 	  /* These surely cannot follow a function tag in C. */
@@ -7067,9 +7059,7 @@ etags_mktmp (void)
   int fd = mkostemp (templt, O_CLOEXEC);
   if (fd < 0 || close (fd) != 0)
     {
-      int temp_errno = errno;
       free (templt);
-      errno = temp_errno;
       templt = NULL;
     }
 #if defined (DOS_NT)
@@ -7310,6 +7300,8 @@ static void *
 xnmalloc (ptrdiff_t nitems, ptrdiff_t item_size)
 {
   ptrdiff_t nbytes;
+  assume (0 <= nitems);
+  assume (0 < item_size);
   if (INT_MULTIPLY_WRAPV (nitems, item_size, &nbytes))
     memory_full ();
   return xmalloc (nbytes);
@@ -7319,6 +7311,8 @@ static void *
 xnrealloc (void *pa, ptrdiff_t nitems, ptrdiff_t item_size)
 {
   ptrdiff_t nbytes;
+  assume (0 <= nitems);
+  assume (0 < item_size);
   if (INT_MULTIPLY_WRAPV (nitems, item_size, &nbytes) || SIZE_MAX < nbytes)
     memory_full ();
   void *result = realloc (pa, nbytes);

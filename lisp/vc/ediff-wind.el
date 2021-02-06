@@ -42,13 +42,6 @@
 (require 'ediff-help)
 ;; end pacifier
 
-
-;; be careful with ediff-tbar
-(eval-and-compile
-  (if (featurep 'xemacs)
-      (require 'ediff-tbar)
-    (defun ediff-compute-toolbar-width () 0)))
-
 (defgroup ediff-window nil
   "Ediff window manipulation."
   :prefix "ediff-"
@@ -156,12 +149,10 @@ In this case, Ediff will use those frames to display these buffers."
    '(name . "Ediff")
    ;;'(unsplittable . t)
    '(minibuffer . nil)
-   '(user-position . t)	      ; Emacs only
-   '(vertical-scroll-bars . nil)  ; Emacs only
-   '(scrollbar-width . 0)         ; XEmacs only
-   '(scrollbar-height . 0)        ; XEmacs only
-   '(menu-bar-lines . 0)          ; Emacs only
-   '(tool-bar-lines . 0)          ; Emacs 21+ only
+   '(user-position . t)
+   '(vertical-scroll-bars . nil)
+   '(menu-bar-lines . 0)
+   '(tool-bar-lines . 0)
    '(left-fringe    . 0)
    '(right-fringe   . 0)
    ;; don't lower but auto-raise
@@ -191,7 +182,7 @@ Used internally---not a user option.")
 
 ;; not used for now
 (defvar ediff-mouse-pixel-threshold 30
-  "If the user moves mouse more than this many pixels, Ediff won't warp mouse into control window.")
+  "If mouse moved more than this many pixels, don't warp mouse into control window.")
 
 (defcustom ediff-grab-mouse t
   "If t, Ediff will always grab the mouse and put it in the control frame.
@@ -260,10 +251,9 @@ the frame used for the wide display.")
 This has effect only on a windowing system.
 If t, hitting `?' to toggle control panel off iconifies it.
 
-This is only useful in Emacs and only for certain kinds of window managers,
-such as TWM and its derivatives, since the window manager must permit
-keyboard input to go into icons.  XEmacs completely ignores keyboard input
-into icons, regardless of the window manager."
+This is only useful for certain kinds of window managers, such as
+TWM and its derivatives, since the window manager must permit
+keyboard input to go into icons."
   :type 'boolean)
 
 ;;; Functions
@@ -272,11 +262,12 @@ into icons, regardless of the window manager."
   (let (event)
     (message
      "Select windows by clicking.  Please click on Window %d " wind-number)
-    (while (not (ediff-mouse-event-p (setq event (read-event))))
+    (while (not (ediff-mouse-event-p (setq event
+                                           (read--potential-mouse-event))))
       (if (sit-for 1) ; if sequence of events, wait till the final word
 	  (beep 1))
       (message "Please click on Window %d " wind-number))
-    (read-event) ; discard event
+    (read--potential-mouse-event) ; discard event
     (posn-window (event-start event))))
 
 
@@ -952,8 +943,7 @@ create a new splittable frame if none is found."
     ;; just a precaution--we should be in ctl-buffer already
     (with-current-buffer ctl-buffer
       (make-local-variable 'frame-title-format)
-      (make-local-variable 'frame-icon-title-format)	; XEmacs
-      (make-local-variable 'icon-title-format))  	; Emacs
+      (make-local-variable 'icon-title-format))
 
     (ediff-setup-control-buffer ctl-buffer)
     (setq dont-iconify-ctl-frame
@@ -965,8 +955,7 @@ create a new splittable frame if none is found."
     ;; 1 more line for the mode line
     (setq lines (1+ (count-lines (point-min) (point-max)))
 	  fheight lines
-	  fwidth (max (+ (ediff-help-message-line-length) 2)
-		      (ediff-compute-toolbar-width))
+          fwidth (max (+ (ediff-help-message-line-length) 2) 0)
 	  adjusted-parameters
 	  (list
 	   ;; possibly change surrogate minibuffer
@@ -1098,6 +1087,7 @@ create a new splittable frame if none is found."
       )))
 
 (defun ediff-xemacs-select-frame-hook ()
+  (declare (obsolete nil "28.1"))
   (if (and (equal (selected-frame) ediff-control-frame)
 	   (not ediff-use-long-help-message))
       (raise-frame ediff-control-frame)))
@@ -1294,6 +1284,9 @@ It assumes that it is called from within the control buffer."
 			     (ediff-multiframe-setup-p)
 			     ediff-wide-display-p)))))))
 
+(defun ediff-compute-toolbar-width ()
+  (declare (obsolete nil "28.1"))
+  0)
 
 (provide 'ediff-wind)
 ;;; ediff-wind.el ends here

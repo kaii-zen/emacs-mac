@@ -1,4 +1,4 @@
-;;; url-vars.el --- Variables for Uniform Resource Locator tool
+;;; url-vars.el --- Variables for Uniform Resource Locator tool  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 1996-1999, 2001, 2004-2021 Free Software Foundation,
 ;; Inc.
@@ -24,6 +24,7 @@
 
 (defconst url-version "Emacs"
   "Version number of URL package.")
+(make-obsolete-variable 'url-version nil "28.1")
 
 (defgroup url nil
   "Uniform Resource Locator tool."
@@ -54,25 +55,18 @@
   :group 'url)
 
 
-(defvar url-current-object nil
+(defvar-local url-current-object nil
   "A parsed representation of the current URL.")
 
-(defvar url-current-mime-headers nil
+(defvar-local url-current-mime-headers nil
   "A parsed representation of the MIME headers for the current URL.")
 
-(defvar url-current-lastloc nil
+(defvar-local url-current-lastloc nil
   "A parsed representation of the URL to be considered as the last location.
 Use of this value on outbound connections is subject to
 `url-privacy-level' and `url-lastloc-privacy-level'.  This is never set
 by the url library, applications are expected to set this
 variable in buffers representing a displayed location.")
-
-(mapc 'make-variable-buffer-local
-      '(
-	url-current-object
-	url-current-mime-headers
-        url-current-lastloc
-	))
 
 (defcustom url-honor-refresh-requests t
   "Whether to do automatic page reloads.
@@ -311,13 +305,6 @@ Applies when a protected document is denied by the server."
   :type 'integer
   :group 'url)
 
-(defcustom url-temporary-directory (or (getenv "TMPDIR") "/tmp")
-  "Where temporary files go."
-  :type 'directory
-  :group 'url-file)
-(make-obsolete-variable 'url-temporary-directory
-			'temporary-file-directory "23.1")
-
 (defcustom url-show-status t
   "Whether to show a running total of bytes transferred.
 Can cause a large hit if using a remote X display over a slow link, or
@@ -430,6 +417,8 @@ Should be one of:
   "Hook run after initializing the URL library."
   :group 'url
   :type 'hook)
+(make-obsolete-variable 'url-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (defconst url-working-buffer " *url-work")
 

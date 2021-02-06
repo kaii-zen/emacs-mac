@@ -511,8 +511,7 @@ When a Korean input method is off, convert the following hangul character."
 
 ;; Text shown by describe-input-method.  Set to a proper text by
 ;; hangul-input-method-activate.
-(defvar hangul-input-method-help-text nil)
-(make-variable-buffer-local 'hangul-input-method-help-text)
+(defvar-local hangul-input-method-help-text nil)
 
 ;;;###autoload
 (defun hangul-input-method-activate (input-method func help-text &rest args)
@@ -525,7 +524,7 @@ HELP-TEXT is a text set in `hangul-input-method-help-text'."
   (quail-delete-overlays)
   (if (eq (selected-window) (minibuffer-window))
       (add-hook 'minibuffer-exit-hook 'quail-exit-from-minibuffer))
-  (set (make-local-variable 'input-method-function) func))
+  (setq-local input-method-function func))
 
 (defun hangul-input-method-deactivate ()
   "Deactivate the current Hangul input method."

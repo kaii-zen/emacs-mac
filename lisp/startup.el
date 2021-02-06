@@ -320,6 +320,8 @@ early init file.")
 This variable is used to define the proper function and keypad
 keys for use under X.  It is used in a fashion analogous to the
 environment variable TERM.")
+(make-obsolete-variable 'keyboard-type nil "28.1")
+(internal-make-var-non-special 'keyboard-type)
 
 (defvar window-setup-hook nil
   "Normal hook run after loading init files and handling the command line.
@@ -463,9 +465,6 @@ or `CVS', and any subdirectory that contains a file named `.nosearch'."
 	    (and (string-match "\\`[[:alnum:]]" file)
 		 ;; The lower-case variants of RCS and CVS are for DOS/Windows.
 		 (not (member file '("RCS" "CVS" "rcs" "cvs")))
-		 ;; Avoid doing a `stat' when it isn't necessary because
-		 ;; that can cause trouble when an NFS server is down.
-		 (not (string-match "\\.elc?\\'" file))
 		 (file-directory-p file)
 		 (let ((expanded (expand-file-name file)))
 		   (or (file-exists-p (expand-file-name ".nosearch" expanded))
@@ -636,7 +635,7 @@ It is the default value of the variable `top-level'."
       (with-current-buffer "*Messages*"
         (messages-buffer-mode)
         ;; Make it easy to do like "tail -f".
-        (set (make-local-variable 'window-point-insertion-type) t)
+        (setq-local window-point-insertion-type t)
         ;; Give *Messages* the same default-directory as *scratch*,
         ;; just to keep things predictable.
 	(setq default-directory (or dir (expand-file-name "~/")))))
@@ -645,16 +644,13 @@ It is the default value of the variable `top-level'."
 	 (list (default-value 'user-full-name)))
     ;; If the PWD environment variable isn't accurate, delete it.
     (let ((pwd (getenv "PWD")))
-      (and (stringp pwd)
-	   ;; Use FOO/., so that if FOO is a symlink, file-attributes
-	   ;; describes the directory linked to, not FOO itself.
+      (and pwd
 	   (or (and default-directory
 		    (ignore-errors
 		      (equal (file-attributes
-			      (concat (file-name-as-directory pwd) "."))
+			      (file-name-as-directory pwd))
 			     (file-attributes
-			      (concat (file-name-as-directory default-directory)
-				      ".")))))
+			      (file-name-as-directory default-directory)))))
 	       (setq process-environment
 		     (delete (concat "PWD=" pwd)
 			     process-environment)))))
@@ -956,10 +952,10 @@ init-file, or to a default value if loading is not possible."
 
               (when (and (eq user-init-file t) alternate-filename-function)
                 (let ((alt-file (funcall alternate-filename-function)))
-                  (and (equal (file-name-extension alt-file) "el")
-                       (setq alt-file (file-name-sans-extension alt-file)))
 		  (unless init-file-name
 		    (setq init-file-name alt-file))
+                  (and (equal (file-name-extension alt-file) "el")
+                       (setq alt-file (file-name-sans-extension alt-file)))
                   (load alt-file 'noerror 'nomessage)))
 
               ;; If we did not find the user's init file, set
@@ -1173,12 +1169,12 @@ please check its value")
 
   ;; Re-evaluate predefined variables whose initial value depends on
   ;; the runtime context.
-  (let (current-load-list) ; c-r-s may call defvar, and hence LOADHIST_ATTACH
-    (setq custom-delayed-init-variables
-          ;; Initialize them in the same order they were loaded, in case there
-          ;; are dependencies between them.
-          (nreverse custom-delayed-init-variables))
-    (mapc 'custom-reevaluate-setting custom-delayed-init-variables))
+  (setq custom-delayed-init-variables
+        ;; Initialize them in the same order they were loaded, in case there
+        ;; are dependencies between them.
+        (nreverse custom-delayed-init-variables))
+  (mapc #'custom-reevaluate-setting custom-delayed-init-variables)
+  (setq custom-delayed-init-variables nil)
 
   ;; Warn for invalid user name.
   (when init-file-user
@@ -1237,17 +1233,7 @@ please check its value")
        package-enable-at-startup
        (not (bound-and-true-p package--activated))
        (catch 'package-dir-found
-	 (let (dirs)
-	   (if (boundp 'package-directory-list)
-	       (setq dirs package-directory-list)
-	     (dolist (f load-path)
-	       (and (stringp f)
-		    (equal (file-name-nondirectory f) "site-lisp")
-		    (push (expand-file-name "elpa" f) dirs))))
-	   (push (if (boundp 'package-user-dir)
-		     package-user-dir
-		   (locate-user-emacs-file "elpa"))
-		 dirs)
+	 (let ((dirs (cons package-user-dir package-directory-list)))
 	   (dolist (dir dirs)
 	     (when (file-directory-p dir)
 	       (dolist (subdir (directory-files dir))
@@ -1305,8 +1291,7 @@ please check its value")
     (if (or noninteractive emacs-basic-display)
 	(setq menu-bar-mode nil
 	      tab-bar-mode nil
-	      tool-bar-mode nil
-	      no-blinking-cursor t))
+	      tool-bar-mode nil))
     (frame-initialize))
 
   (when (fboundp 'x-create-frame)
@@ -1327,13 +1312,6 @@ please check its value")
   (unless noninteractive
     (startup--setup-quote-display)
     (setq internal--text-quoting-flag t))
-
-  ;; Re-evaluate again the predefined variables whose initial value
-  ;; depends on the runtime context, in case some of them depend on
-  ;; the window-system features.  Example: blink-cursor-mode.
-  (let (current-load-list) ; c-r-s may call defvar, and hence LOADHIST_ATTACH
-    (mapc 'custom-reevaluate-setting custom-delayed-init-variables)
-    (setq custom-delayed-init-variables nil))
 
   (normal-erase-is-backspace-setup-frame)
 
@@ -1389,7 +1367,7 @@ please check its value")
          "~/.emacs")))
      (lambda ()
        (expand-file-name
-        "init"
+        "init.el"
         startup-init-directory))
      t)
 
@@ -1417,7 +1395,7 @@ please check its value")
 	 (equal user-mail-address
 		(let (mail-host-address)
 		  (ignore-errors
-		    (eval (car (get 'user-mail-address 'standard-value))))))
+		    (custom--standard-value 'user-mail-address))))
 	 (custom-reevaluate-setting 'user-mail-address))
 
     ;; If parameter have been changed in the init file which influence
@@ -1515,13 +1493,13 @@ to reading the init file), or afterwards when the user first
 opens a graphical frame.
 
 This can set the values of `menu-bar-mode', `tool-bar-mode',
-`tab-bar-mode', and `no-blinking-cursor', as well as the `cursor' face.
+`tab-bar-mode', and `blink-cursor-mode', as well as the `cursor' face.
 Changed settings will be marked as \"CHANGED outside of Customize\"."
   (let ((no-vals  '("no" "off" "false" "0"))
 	(settings '(("menuBar" "MenuBar" menu-bar-mode nil)
 		    ("toolBar" "ToolBar" tool-bar-mode nil)
 		    ("scrollBar" "ScrollBar" scroll-bar-mode nil)
-		    ("cursorBlink" "CursorBlink" no-blinking-cursor t))))
+		    ("cursorBlink" "CursorBlink" blink-cursor-mode nil))))
     (dolist (x settings)
       (if (member (x-get-resource (nth 0 x) (nth 1 x)) no-vals)
 	  (set (nth 2 x) (nth 3 x)))))
@@ -2015,7 +1993,7 @@ splash screen in another window."
       (setq buffer-read-only nil)
       (erase-buffer)
       (setq default-directory command-line-default-directory)
-      (set (make-local-variable 'tab-width) 8)
+      (setq-local tab-width 8)
 
       (if pure-space-overflow
 	  (insert pure-space-overflow-message))

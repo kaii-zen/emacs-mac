@@ -1,8 +1,9 @@
-;;; f90-tests.el --- tests for progmodes/f90.el
+;;; f90-tests.el --- tests for progmodes/f90.el  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2011-2021 Free Software Foundation, Inc.
 
 ;; Author: Glenn Morris <rgm@gnu.org>
+;; Maintainer: emacs-devel@gnu.org
 
 ;; This file is part of GNU Emacs.
 

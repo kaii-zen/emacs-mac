@@ -1,4 +1,4 @@
-;;; gnus-salt.el --- alternate summary mode interfaces for Gnus
+;;; gnus-salt.el --- alternate summary mode interfaces for Gnus  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1996-1999, 2001-2021 Free Software Foundation, Inc.
 
@@ -103,18 +103,18 @@ It accepts the same format specs that `gnus-summary-line-format' does."
    ((not (derived-mode-p 'gnus-summary-mode)) (setq gnus-pick-mode nil))
    ((not gnus-pick-mode)
     ;; FIXME: a buffer-local minor mode removing globally from a hook??
-    (remove-hook 'gnus-message-setup-hook 'gnus-pick-setup-message))
+    (remove-hook 'gnus-message-setup-hook #'gnus-pick-setup-message))
    (t
     ;; Make sure that we don't select any articles upon group entry.
-    (set (make-local-variable 'gnus-auto-select-first) nil)
+    (setq-local gnus-auto-select-first nil)
     ;; Change line format.
     (setq gnus-summary-line-format gnus-summary-pick-line-format)
     (setq gnus-summary-line-format-spec nil)
     (gnus-update-format-specifications nil 'summary)
     (gnus-update-summary-mark-positions)
     ;; FIXME: a buffer-local minor mode adding globally to a hook??
-    (add-hook 'gnus-message-setup-hook 'gnus-pick-setup-message)
-    (set (make-local-variable 'gnus-summary-goto-unread) 'never)
+    (add-hook 'gnus-message-setup-hook #'gnus-pick-setup-message)
+    (setq-local gnus-summary-goto-unread 'never)
     ;; Set up the menu.
     (when (gnus-visual-p 'pick-menu 'menu)
       (gnus-pick-make-menu-bar)))))
@@ -333,10 +333,8 @@ This must be bound to a button-down mouse event."
    ((not (derived-mode-p 'gnus-summary-mode)) (setq gnus-binary-mode nil))
    (gnus-binary-mode
     ;; Make sure that we don't select any articles upon group entry.
-    (make-local-variable 'gnus-auto-select-first)
-    (setq gnus-auto-select-first nil)
-    (make-local-variable 'gnus-summary-display-article-function)
-    (setq gnus-summary-display-article-function 'gnus-binary-display-article)
+    (setq-local gnus-auto-select-first nil)
+    (setq-local gnus-summary-display-article-function 'gnus-binary-display-article)
     ;; Set up the menu.
     (when (gnus-visual-p 'binary-menu 'menu)
       (gnus-binary-make-menu-bar)))))
@@ -611,7 +609,7 @@ Two predefined functions are available:
 	 beg end)
     (add-text-properties
      (setq beg (point))
-     (setq end (progn (eval gnus-tree-line-format-spec) (point)))
+     (setq end (progn (eval gnus-tree-line-format-spec t) (point)))
      (list 'gnus-number gnus-tmp-number))
     (when (or t (gnus-visual-p 'tree-highlight 'highlight))
       (gnus-tree-highlight-node gnus-tmp-number beg end))))

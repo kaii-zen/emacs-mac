@@ -76,8 +76,7 @@
 (defcustom gomoku-mode-hook nil
   "If non-nil, its value is called on entry to Gomoku mode.
 One useful value to include is `turn-on-font-lock' to highlight the pieces."
-  :type 'hook
-  :group 'gomoku)
+  :type 'hook)
 
 ;;;
 ;;; CONSTANTS FOR BOARD
@@ -110,8 +109,8 @@ One useful value to include is `turn-on-font-lock' to highlight the pieces."
     (define-key map "u" 'gomoku-move-ne)		    ; u
     (define-key map "b" 'gomoku-move-sw)		    ; b
     (define-key map "n" 'gomoku-move-se)		    ; n
-    (define-key map "h" 'backward-char)			    ; h
-    (define-key map "l" 'forward-char)			    ; l
+    (define-key map "h" 'gomoku-move-left)		    ; h
+    (define-key map "l" 'gomoku-move-right)		    ; l
     (define-key map "j" 'gomoku-move-down)		    ; j
     (define-key map "k" 'gomoku-move-up)		    ; k
 
@@ -119,11 +118,13 @@ One useful value to include is `turn-on-font-lock' to highlight the pieces."
     (define-key map [kp-9] 'gomoku-move-ne)
     (define-key map [kp-1] 'gomoku-move-sw)
     (define-key map [kp-3] 'gomoku-move-se)
-    (define-key map [kp-4] 'backward-char)
-    (define-key map [kp-6] 'forward-char)
+    (define-key map [kp-4] 'gomoku-move-left)
+    (define-key map [kp-6] 'gomoku-move-right)
     (define-key map [kp-2] 'gomoku-move-down)
     (define-key map [kp-8] 'gomoku-move-up)
 
+    (define-key map "\C-b" 'gomoku-move-left)		    ; C-b
+    (define-key map "\C-f" 'gomoku-move-right)		    ; C-f
     (define-key map "\C-n" 'gomoku-move-down)		    ; C-n
     (define-key map "\C-p" 'gomoku-move-up)		    ; C-p
 
@@ -146,6 +147,10 @@ One useful value to include is `turn-on-font-lock' to highlight the pieces."
     (define-key map [mouse-2] 'gomoku-mouse-play)
     (define-key map [drag-mouse-2] 'gomoku-mouse-play)
 
+    (define-key map [remap backward-char] 'gomoku-move-left)
+    (define-key map [remap left-char] 'gomoku-move-left)
+    (define-key map [remap forward-char] 'gomoku-move-right)
+    (define-key map [remap right-char] 'gomoku-move-right)
     (define-key map [remap previous-line] 'gomoku-move-up)
     (define-key map [remap next-line] 'gomoku-move-down)
     (define-key map [remap move-beginning-of-line] 'gomoku-beginning-of-line)
@@ -162,13 +167,11 @@ One useful value to include is `turn-on-font-lock' to highlight the pieces."
 
 (defface gomoku-O
     '((((class color)) (:foreground "red" :weight bold)))
-  "Face to use for Emacs's O."
-  :group 'gomoku)
+  "Face to use for Emacs's O.")
 
 (defface gomoku-X
     '((((class color)) (:foreground "green" :weight bold)))
-  "Face to use for your X."
-  :group 'gomoku)
+  "Face to use for your X.")
 
 (defvar gomoku-font-lock-keywords
   '(("O" . 'gomoku-O)
@@ -189,9 +192,8 @@ You play by moving the cursor over the square you choose and hitting \\[gomoku-h
 Other useful commands:\n
 \\{gomoku-mode-map}"
   (gomoku-display-statistics)
-  (make-local-variable 'font-lock-defaults)
-  (setq font-lock-defaults '(gomoku-font-lock-keywords t)
-	buffer-read-only t)
+  (setq-local font-lock-defaults '(gomoku-font-lock-keywords t))
+  (setq buffer-read-only t)
   (add-hook 'post-command-hook #'gomoku--intangible nil t))
 
 ;;;
@@ -954,6 +956,11 @@ If the game is finished, this command requests for another game."
 	 ;; 2 instead of 1 because WINDOW-HEIGHT includes the mode line !
 	 gomoku-square-height)))
 
+(defun gomoku-point-x ()
+  "Return the board column where point is."
+  (1+ (/ (- (current-column) gomoku-x-offset)
+	 gomoku-square-width)))
+
 (defun gomoku-point-y ()
   "Return the board row where point is."
   (1+ (/ (- (count-lines (point-min) (point))
@@ -1143,12 +1150,27 @@ If the game is finished, this command requests for another game."
           (skip-chars-forward gomoku--intangible-chars)
           (when (eobp)
             (skip-chars-backward gomoku--intangible-chars)
-            (forward-char -1)))
+            (gomoku-move-left)))
       (skip-chars-backward gomoku--intangible-chars)
       (if (bobp)
           (skip-chars-forward gomoku--intangible-chars)
-        (forward-char -1))))
+        (gomoku-move-left))))
   (setq gomoku--last-pos (point)))
+
+;; forward-char and backward-char don't always move the right number
+;; of characters. Also, these functions check if you're on the edge of
+;; the screen.
+(defun gomoku-move-right ()
+  "Move point right one column on the Gomoku board."
+  (interactive)
+  (when (< (gomoku-point-x) gomoku-board-width)
+    (forward-char gomoku-square-width)))
+
+(defun gomoku-move-left ()
+  "Move point left one column on the Gomoku board."
+  (interactive)
+  (when (> (gomoku-point-x) 1)
+    (backward-char gomoku-square-width)))
 
 ;; previous-line and next-line don't work right with intangible newlines
 (defun gomoku-move-down ()
@@ -1171,25 +1193,25 @@ If the game is finished, this command requests for another game."
   "Move point North East on the Gomoku board."
   (interactive)
   (gomoku-move-up)
-  (forward-char))
+  (gomoku-move-right))
 
 (defun gomoku-move-se ()
   "Move point South East on the Gomoku board."
   (interactive)
   (gomoku-move-down)
-  (forward-char))
+  (gomoku-move-right))
 
 (defun gomoku-move-nw ()
   "Move point North West on the Gomoku board."
   (interactive)
   (gomoku-move-up)
-  (backward-char))
+  (gomoku-move-left))
 
 (defun gomoku-move-sw ()
   "Move point South West on the Gomoku board."
   (interactive)
   (gomoku-move-down)
-  (backward-char))
+  (gomoku-move-left))
 
 (defun gomoku-beginning-of-line ()
   "Move point to first square on the Gomoku board row."

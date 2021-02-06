@@ -3,7 +3,7 @@
 ;; Copyright (C) 2010-2021 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
-;; Keywords:
+;; Keywords: extensions
 
 ;; This file is part of GNU Emacs.
 
@@ -39,10 +39,10 @@
 ;; - along these lines, provide patterns to match CL structs.
 ;; - provide something like (setq VAR) so a var can be set rather than
 ;;   let-bound.
-;; - provide a way to fallthrough to subsequent cases (not sure what I meant by
-;;   this :-()
+;; - provide a way to fallthrough to subsequent cases
+;;   (e.g. Like Racket's (=> ID).
 ;; - try and be more clever to reduce the size of the decision tree, and
-;;   to reduce the number of leaves that need to be turned into function:
+;;   to reduce the number of leaves that need to be turned into functions:
 ;;   - first, do the tests shared by all remaining branches (it will have
 ;;     to be performed anyway, so better do it first so it's shared).
 ;;   - then choose the test that discriminates more (?).
@@ -97,11 +97,15 @@
 (declare-function get-edebug-spec "edebug" (symbol))
 (declare-function edebug-match "edebug" (cursor specs))
 
+(defun pcase--get-macroexpander (s)
+  "Return the macroexpander for pcase pattern head S, or nil"
+  (get s 'pcase-macroexpander))
+
 (defun pcase--edebug-match-macro (cursor)
   (let (specs)
     (mapatoms
      (lambda (s)
-       (let ((m (get s 'pcase-macroexpander)))
+       (let ((m (pcase--get-macroexpander s)))
 	 (when (and m (get-edebug-spec m))
 	   (push (cons (symbol-name s) (get-edebug-spec m))
 		 specs)))))
@@ -128,9 +132,9 @@ PATTERN matches.  PATTERN can take one of the forms:
                    If a SYMBOL is used twice in the same pattern
                    the second occurrence becomes an `eq'uality test.
   (pred FUN)       matches if FUN called on EXPVAL returns non-nil.
+  (pred (not FUN)) matches if FUN called on EXPVAL returns nil.
   (app FUN PAT)    matches if FUN called on EXPVAL matches PAT.
   (guard BOOLEXP)  matches if BOOLEXP evaluates to non-nil.
-  (let PAT EXPR)   matches if EXPR matches PAT.
   (and PAT...)     matches if all the patterns match.
   (or PAT...)      matches if any of the patterns matches.
 
@@ -140,7 +144,7 @@ FUN in `pred' and `app' can take one of the forms:
   (F ARG1 .. ARGn)
      call F with ARG1..ARGn and EXPVAL as n+1'th argument
 
-FUN, BOOLEXP, EXPR, and subsequent PAT can refer to variables
+FUN, BOOLEXP, and subsequent PAT can refer to variables
 bound earlier in the pattern by a SYMBOL pattern.
 
 Additional patterns can be defined using `pcase-defmacro'.
@@ -193,7 +197,7 @@ Emacs Lisp manual for more information and examples."
       (let (more)
         ;; Collect all the extensions.
         (mapatoms (lambda (symbol)
-                    (let ((me (get symbol 'pcase-macroexpander)))
+                    (let ((me (pcase--get-macroexpander symbol)))
                       (when me
                         (push (cons symbol me)
                               more)))))
@@ -344,7 +348,8 @@ of the elements of LIST is performed as if by `pcase-let'.
            (seen '())
            (codegen
             (lambda (code vars)
-              (let ((prev (assq code seen)))
+              (let ((vars (macroexp--fgrep vars code))
+                    (prev (assq code seen)))
                 (if (not prev)
                     (let ((res (pcase-codegen code vars)))
                       (push (list code vars res) seen)
@@ -398,14 +403,18 @@ of the elements of LIST is performed as if by `pcase-let'.
                              (if (pcase--small-branch-p (cdr case))
                                  ;; Don't bother sharing multiple
                                  ;; occurrences of this leaf since it's small.
-                                 #'pcase-codegen codegen)
+                                 (lambda (code vars)
+                                   (pcase-codegen code
+                                                  (macroexp--fgrep vars code)))
+                               codegen)
                              (cdr case)
                              vars))))
                      cases))))
       (dolist (case cases)
         (unless (or (memq case used-cases)
                     (memq (car case) pcase--dontwarn-upats))
-          (message "Redundant pcase pattern: %S" (car case))))
+          (message "pcase pattern %S shadowed by previous pcase pattern"
+                   (car case))))
       (macroexp-let* defs main))))
 
 (defun pcase--macroexpand (pat)
@@ -416,10 +425,9 @@ of the elements of LIST is performed as if by `pcase-let'.
       (if (pcase--self-quoting-p pat) `',pat pat))
      ((memq head '(pred guard quote)) pat)
      ((memq head '(or and)) `(,head ,@(mapcar #'pcase--macroexpand (cdr pat))))
-     ((eq head 'let) `(let ,(pcase--macroexpand (cadr pat)) ,@(cddr pat)))
      ((eq head 'app) `(app ,(nth 1 pat) ,(pcase--macroexpand (nth 2 pat))))
      (t
-      (let* ((expander (get head 'pcase-macroexpander))
+      (let* ((expander (pcase--get-macroexpander head))
              (npat (if expander (apply expander (cdr pat)))))
         (if (null npat)
             (error (if expander
@@ -590,7 +598,7 @@ MATCH is the pattern that needs to be matched, of the form:
                    ((null (cdr else-alts)) (car else-alts))
                    (t (cons (car match) (nreverse else-alts)))))))
     ((memq match '(:pcase--succeed :pcase--fail)) (cons match match))
-    (t (error "Uknown MATCH %s" match))))
+    (t (error "Unknown MATCH %s" match))))
 
 (defun pcase--split-rest (sym splitter rest)
   (let ((then-rest '())
@@ -653,6 +661,14 @@ MATCH is the pattern that needs to be matched, of the form:
     '(:pcase--succeed . nil))))
 
 (defun pcase--split-pred (vars upat pat)
+  "Indicate the overlap or mutual-exclusion between UPAT and PAT.
+More specifically retuns a pair (A . B) where A indicates whether PAT
+can match when UPAT has matched, and B does the same for the case
+where UPAT failed to match.
+A and B can be one of:
+- nil if we don't know
+- `:pcase--fail' if UPAT match's result implies that PAT can't match
+- `:pcase--succeed' if UPAT match's result implies that PAT matches"
   (let (test)
     (cond
      ((and (equal upat pat)
@@ -663,21 +679,44 @@ MATCH is the pattern that needs to be matched, of the form:
                ;; run, but we don't have the environment in which `pat' will
                ;; run, so we can't do a reliable verification.  But let's try
                ;; and catch at least the easy cases such as (bug#14773).
-               (not (pcase--fgrep (mapcar #'car vars) (cadr upat)))))
+               (not (macroexp--fgrep (mapcar #'car vars) (cadr upat)))))
       '(:pcase--succeed . :pcase--fail))
-     ((and (eq 'pred (car upat))
-           (let ((otherpred
-                  (cond ((eq 'pred (car-safe pat)) (cadr pat))
-                        ((not (eq 'quote (car-safe pat))) nil)
-                        ((consp (cadr pat)) #'consp)
-                        ((stringp (cadr pat)) #'stringp)
-                        ((vectorp (cadr pat)) #'vectorp)
-                        ((byte-code-function-p (cadr pat))
-                         #'byte-code-function-p))))
-             (pcase--mutually-exclusive-p (cadr upat) otherpred)))
+     ;; In case PAT is of the form (pred (not PRED))
+     ((and (eq 'pred (car-safe pat)) (eq 'not (car-safe (cadr pat))))
+      (let* ((test (cadr (cadr pat)))
+             (res (pcase--split-pred vars upat `(pred ,test)))
+             (reverse (lambda (x) (cond ((eq x :pcase--succeed) :pcase--fail)
+                                   ((eq x :pcase--fail) :pcase--succeed)))))
+        (cons (funcall reverse (car res))
+              (funcall reverse (cdr res)))))
+     ;; All the rest below presumes UPAT is of the form (pred ...).
+     ((not (eq 'pred (car upat))) nil)
+     ;; In case UPAT is of the form (pred (not PRED))
+     ((eq 'not (car-safe (cadr upat)))
+      (let* ((test (cadr (cadr upat)))
+             (res (pcase--split-pred vars `(pred ,test) pat)))
+        (cons (cdr res) (car res))))
+     ((let ((otherpred
+             (cond ((eq 'pred (car-safe pat)) (cadr pat))
+                   ((not (eq 'quote (car-safe pat))) nil)
+                   ((consp (cadr pat)) #'consp)
+                   ((stringp (cadr pat)) #'stringp)
+                   ((vectorp (cadr pat)) #'vectorp)
+                   ((byte-code-function-p (cadr pat))
+                    #'byte-code-function-p))))
+        (pcase--mutually-exclusive-p (cadr upat) otherpred))
       '(:pcase--fail . nil))
-     ((and (eq 'pred (car upat))
-           (eq 'quote (car-safe pat))
+     ;; Since we turn (or 'a 'b 'c) into (pred (pcase--flip (memq '(a b c))))
+     ;; try and preserve the info we get from that memq test.
+     ((and (eq 'pcase--flip (car-safe (cadr upat)))
+           (memq (cadr (cadr upat)) '(memq member memql))
+           (eq 'quote (car-safe (nth 2 (cadr upat))))
+           (eq 'quote (car-safe pat)))
+      (let ((set (cadr (nth 2 (cadr upat)))))
+        (if (member (cadr pat) set)
+            '(nil . :pcase--fail)
+          '(:pcase--fail . nil))))
+     ((and (eq 'quote (car-safe pat))
            (symbolp (cadr upat))
            (or (symbolp (cadr pat)) (stringp (cadr pat)) (numberp (cadr pat)))
            (get (cadr upat) 'side-effect-free)
@@ -686,15 +725,6 @@ MATCH is the pattern that needs to be matched, of the form:
       (if (car test)
           '(nil . :pcase--fail)
         '(:pcase--fail . nil))))))
-
-(defun pcase--fgrep (vars sexp)
-  "Check which of the symbols VARS appear in SEXP."
-  (let ((res '()))
-    (while (consp sexp)
-      (dolist (var (pcase--fgrep vars (pop sexp)))
-        (unless (memq var res) (push var res))))
-    (and (memq sexp vars) (not (memq sexp res)) (push sexp res))
-    res))
 
 (defun pcase--self-quoting-p (upat)
   (or (keywordp upat) (integerp upat) (stringp upat)))
@@ -713,7 +743,7 @@ MATCH is the pattern that needs to be matched, of the form:
                   (pcase--app-subst-match match sym fun nsym))
                 (cdr match))))
    ((memq match '(:pcase--succeed :pcase--fail)) match)
-   (t (error "Uknown MATCH %s" match))))
+   (t (error "Unknown MATCH %s" match))))
 
 (defun pcase--app-subst-rest (rest sym fun nsym)
   (mapcar (lambda (branch)
@@ -732,15 +762,15 @@ MATCH is the pattern that needs to be matched, of the form:
 
 (defun pcase--funcall (fun arg vars)
   "Build a function call to FUN with arg ARG."
-  (if (symbolp fun)
-      `(,fun ,arg)
-    (let* (;; `vs' is an upper bound on the vars we need.
-           (vs (pcase--fgrep (mapcar #'car vars) fun))
-           (env (mapcar (lambda (var)
-                          (list var (cdr (assq var vars))))
-                        vs))
+  (cond
+   ((symbolp fun) `(,fun ,arg))
+   ((eq 'not (car-safe fun)) `(not ,(pcase--funcall (cadr fun) arg vars)))
+   (t
+    (let* (;; `env' is an upper bound on the bindings we need.
+           (env (mapcar (lambda (x) (list (car x) (cdr x)))
+                        (macroexp--fgrep vars fun)))
            (call (progn
-                   (when (memq arg vs)
+                   (when (assq arg env)
                      ;; `arg' is shadowed by `env'.
                      (let ((newsym (gensym "x")))
                        (push (list newsym arg) env)
@@ -748,21 +778,23 @@ MATCH is the pattern that needs to be matched, of the form:
                    (if (functionp fun)
                        `(funcall #',fun ,arg)
                      `(,@fun ,arg)))))
-      (if (null vs)
+      (if (null env)
           call
         ;; Let's not replace `vars' in `fun' since it's
         ;; too difficult to do it right, instead just
         ;; let-bind `vars' around `fun'.
-        `(let* ,env ,call)))))
+        `(let* ,env ,call))))))
 
 (defun pcase--eval (exp vars)
   "Build an expression that will evaluate EXP."
   (let* ((found (assq exp vars)))
     (if found (cdr found)
-      (let* ((vs (pcase--fgrep (mapcar #'car vars) exp))
-             (env (mapcar (lambda (v) (list v (cdr (assq v vars))))
-                          vs)))
-        (if env (macroexp-let* env exp) exp)))))
+      (let* ((env (macroexp--fgrep vars exp)))
+        (if env
+            (macroexp-let* (mapcar (lambda (x) (list (car x) (cdr x)))
+                                   env)
+                           exp)
+          exp)))))
 
 ;; It's very tempting to use `pcase' below, tho obviously, it'd create
 ;; bootstrapping problems.
@@ -854,17 +886,8 @@ Otherwise, it defers to REST which is a list of branches of the form
         (if (not (assq upat vars))
             (pcase--u1 matches code (cons (cons upat sym) vars) rest)
           ;; Non-linear pattern.  Turn it into an `eq' test.
-          (pcase--u1 (cons `(match ,sym . (pred (eq ,(cdr (assq upat vars)))))
+          (pcase--u1 (cons `(match ,sym . (pred (eql ,(cdr (assq upat vars)))))
                            matches)
-                     code vars rest)))
-       ((eq (car-safe upat) 'let)
-        ;; A upat of the form (let VAR EXP).
-        ;; (pcase--u1 matches code
-        ;;            (cons (cons (nth 1 upat) (nth 2 upat)) vars) rest)
-        (macroexp-let2
-            macroexp-copyable-p sym
-            (pcase--eval (nth 2 upat) vars)
-          (pcase--u1 (cons (pcase--match sym (nth 1 upat)) matches)
                      code vars rest)))
        ((eq (car-safe upat) 'app)
         ;; A upat of the form (app FUN PAT)
@@ -976,6 +999,10 @@ The predicate is the logical-AND of:
    ;; backward compatibility when adding \` support for other
    ;; compounded values that are not `consp'
    (t (error "Unknown QPAT: %S" qpat))))
+
+(pcase-defmacro let (pat expr)
+  "Matches if EXPR matches PAT."
+  `(app (lambda (_) ,expr) ,pat))
 
 (provide 'pcase)
 ;;; pcase.el ends here

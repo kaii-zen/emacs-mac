@@ -4,7 +4,7 @@
 ;; Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
-;; Version: 0.2
+;; Old-Version: 0.2
 ;; Keywords: OO, chart, graph
 
 ;; This file is part of GNU Emacs.
@@ -67,9 +67,8 @@
 (define-obsolete-variable-alias 'chart-map 'chart-mode-map "24.1")
 (defvar chart-mode-map (make-sparse-keymap) "Keymap used in chart mode.")
 
-(defvar chart-local-object nil
+(defvar-local chart-local-object nil
   "Local variable containing the locally displayed chart object.")
-(make-variable-buffer-local 'chart-local-object)
 
 (defvar chart-face-color-list '("red" "green" "blue"
 				"cyan" "yellow" "purple")
@@ -105,9 +104,7 @@ Useful if new Emacs is used on B&W display.")
                                       (car cl)
                                     "white"))
           (set-face-foreground nf "black")
-          (if (and chart-face-use-pixmaps
-                   pl
-                   (fboundp 'set-face-background-pixmap))
+          (if (and chart-face-use-pixmaps pl)
               (condition-case nil
                   (set-face-background-pixmap nf (car pl))
                 (error (message "Cannot set background pixmap %s" (car pl)))))
@@ -122,7 +119,7 @@ too much in text characters anyways.")
 (define-derived-mode chart-mode special-mode "Chart"
   "Define a mode in Emacs for displaying a chart."
   (buffer-disable-undo)
-  (set (make-local-variable 'font-lock-global-modes) nil)
+  (setq-local font-lock-global-modes nil)
   (font-lock-mode -1)                   ;Isn't it off already?  --Stef
   )
 
@@ -335,7 +332,8 @@ Automatically compensates for direction."
 (cl-defmethod chart-axis-draw ((a chart-axis-names) &optional dir margin zone _start _end)
   "Draw axis information based upon A range to be spread along the edge.
 Optional argument DIR is the direction of the chart.
-Optional arguments MARGIN, ZONE, START and END specify boundaries of the drawing."
+Optional arguments MARGIN, ZONE, START and END specify boundaries
+of the drawing."
   (cl-call-next-method)
   ;; We prefer about 5 spaces between each value
   (let* ((i 0)

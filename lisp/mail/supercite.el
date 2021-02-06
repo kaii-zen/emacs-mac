@@ -509,9 +509,9 @@ string."
 ;; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ;; end user configuration variables
 
-(defvar sc-mail-info nil
+(defvar-local sc-mail-info nil
   "Alist of mail header information gleaned from reply buffer.")
-(defvar sc-attributions nil
+(defvar-local sc-attributions nil
   "Alist of attributions for use when citing.")
 
 (defvar sc-tmp-nested-regexp nil
@@ -520,9 +520,6 @@ string."
   "Temporary regexp describing non-nested citations.")
 (defvar sc-tmp-dumb-regexp nil
   "Temp regexp describing non-nested citation cited with a nesting citer.")
-
-(make-variable-buffer-local 'sc-mail-info)
-(make-variable-buffer-local 'sc-attributions)
 
 
 ;; ======================================================================
@@ -618,10 +615,7 @@ the list should be unique."
 		   (lambda (elt) (char-to-string (cdr elt))) alist "/")
 		  ") "))
 	 (p prompt)
-	 (event
-	  (if (fboundp 'allocate-event)
-	      (allocate-event)
-	    nil)))
+         event)
     (while (stringp p)
       (if (let ((cursor-in-echo-area t)
 		(inhibit-quit t))
@@ -630,8 +624,6 @@ the list should be unique."
 	    (prog1 quit-flag (setq quit-flag nil)))
 	  (progn
 	    (message "%s%s" p (single-key-description event))
-	    (if (fboundp 'deallocate-event)
-		(deallocate-event event))
 	    (setq quit-flag nil)
 	    (signal 'quit '())))
       (let ((char event)
@@ -650,8 +642,6 @@ the list should be unique."
 	  (discard-input)
 	  (if (eq p prompt)
 	      (setq p (concat "Try again.  " prompt)))))))
-    (if (fboundp 'deallocate-event)
-	(deallocate-event event))
     p))
 
 (defun sc-scan-info-alist (alist)
@@ -1028,17 +1018,16 @@ supplied, is used instead of the line point is on in the current buffer."
        (setq position (1+ position))
        (let ((keep-p t))
 	 (mapc
-	  (function
-	   (lambda (filter)
-	     (let ((regexp (car filter))
-		   (pos (cdr filter)))
-	       (if (and (string-match regexp name)
-			(or (and (numberp pos)
-				 (= pos position))
-			    (and (eq pos 'last)
-				 (= position (1- elements)))
-			    (eq pos 'any)))
-		   (setq keep-p nil)))))
+          (lambda (filter)
+            (let ((regexp (car filter))
+                  (pos (cdr filter)))
+              (if (and (string-match regexp name)
+                       (or (and (numberp pos)
+                                (= pos position))
+                           (and (eq pos 'last)
+                                (= position (1- elements)))
+                           (eq pos 'any)))
+                  (setq keep-p nil))))
 	  sc-name-filter-alist)
 	 (if keep-p
 	     (setq keepers (cons position keepers)))))

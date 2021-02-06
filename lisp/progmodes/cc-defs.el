@@ -87,7 +87,7 @@
 
 ;;; Variables also used at compile time.
 
-(defconst c-version "5.34.1"
+(defconst c-version "5.35.1"
   "CC Mode version number.")
 
 (defconst c-version-sym (intern c-version))
@@ -434,6 +434,14 @@ to it is returned.  This function does not modify the point or the mark."
 	 (setq count (+ count (skip-chars-backward "\\\\"))))
        (not (zerop (logand count 1))))))
 
+(defmacro c-will-be-unescaped (beg)
+  ;; Would the character after BEG be unescaped?
+  `(save-excursion
+    (let (count)
+      (goto-char ,beg)
+      (setq count (skip-chars-backward "\\\\"))
+      (zerop (logand count 1)))))
+
 (defvar c-use-extents)
 
 (defmacro c-next-single-property-change (position prop &optional object limit)
@@ -444,6 +452,15 @@ to it is returned.  This function does not modify the point or the mark."
       `(next-single-char-property-change ,position ,prop ,object ,limit)
     ;; Emacs and earlier XEmacs
     `(next-single-property-change ,position ,prop ,object ,limit)))
+
+(defmacro c-previous-single-property-change (position prop &optional object limit)
+  ;; See the doc string for either of the defuns expanded to.
+  (if (and c-use-extents
+	   (fboundp 'previous-single-char-property-change))
+      ;; XEmacs >= 2005-01-25
+      `(previous-single-char-property-change ,position ,prop ,object ,limit)
+    ;; Emacs and earlier XEmacs
+    `(previous-single-property-change ,position ,prop ,object ,limit)))
 
 (defmacro c-region-is-active-p ()
   ;; Return t when the region is active.  The determination of region
@@ -1047,15 +1064,6 @@ MODE is either a mode symbol or a list of mode symbols."
 ;; properties set on a single character and that never spread to any
 ;; other characters.
 
-(defmacro c-put-syn-tab (pos value)
-  ;; Set both the syntax-table and the c-fl-syn-tab text properties at POS to
-  ;; VALUE (which should not be nil).
-  `(let ((-pos- ,pos)
-	 (-value- ,value))
-     (c-put-char-property -pos- 'syntax-table -value-)
-     (c-put-char-property -pos- 'c-fl-syn-tab -value-)
-     (c-truncate-lit-pos-cache -pos-)))
-
 (eval-and-compile
   ;; Constant used at compile time to decide whether or not to use
   ;; XEmacs extents.  Check all the extent functions we'll use since
@@ -1183,13 +1191,6 @@ MODE is either a mode symbol or a list of mode symbols."
 	 ;; Emacs < 21.
 	 `(c-clear-char-property-fun ,pos ',property))))
 
-(defmacro c-clear-syn-tab (pos)
-  ;; Remove both the 'syntax-table and `c-fl-syn-tab properties at POS.
-  `(let ((-pos- ,pos))
-     (c-clear-char-property -pos- 'syntax-table)
-     (c-clear-char-property -pos- 'c-fl-syn-tab)
-     (c-truncate-lit-pos-cache -pos-)))
-
 (defmacro c-min-property-position (from to property)
   ;; Return the first position in the range [FROM to) where the text property
   ;; PROPERTY is set, or `most-positive-fixnum' if there is no such position.
@@ -1235,8 +1236,18 @@ MODE is either a mode symbol or a list of mode symbols."
   ;; Remove all occurrences of the `syntax-table' and `c-fl-syn-tab' text
   ;; properties between FROM and TO.
   `(let ((-from- ,from) (-to- ,to))
-     (c-clear-char-properties -from- -to- 'syntax-table)
-     (c-clear-char-properties -from- -to- 'c-fl-syn-tab)))
+     (when (and
+	    c-min-syn-tab-mkr c-max-syn-tab-mkr
+	    (< -from- c-max-syn-tab-mkr)
+	    (> -to- c-min-syn-tab-mkr))
+       (let ((pos -from-))
+	 (while (and
+		 (< pos -to-)
+		 (setq pos (c-min-property-position pos -to- 'c-fl-syn-tab))
+		 (< pos -to-))
+	   (c-clear-syn-tab pos)
+	   (setq pos (1+ pos)))))
+     (c-clear-char-properties -from- -to- 'syntax-table)))
 
 (defmacro c-search-forward-char-property (property value &optional limit)
   "Search forward for a text-property PROPERTY having value VALUE.
@@ -1456,28 +1467,6 @@ with value CHAR in the region [FROM to)."
 	 (c-put-char-property (point) ,property ,value)
 	 (forward-char)))))
 
-(defmacro c-with-extended-string-fences (beg end &rest body)
-  ;; If needed, extend the region with "mirrored" c-fl-syn-tab properties to
-  ;; contain the region (BEG END), then evaluate BODY.  If this mirrored
-  ;; region was initially empty, restore it afterwards.
-  `(let ((-beg- ,beg)
-	 (-end- ,end)
-	 )
-     (cond
-      ((null c-fl-syn-tab-region)
-       (unwind-protect
-	   (progn
-	     (c-restore-string-fences -beg- -end-)
-	     ,@body)
-	 (c-clear-string-fences)))
-      ((and (>= -beg- (car c-fl-syn-tab-region))
-	    (<= -end- (cdr c-fl-syn-tab-region)))
-       ,@body)
-      (t				; Crudely extend the mirrored region.
-       (setq -beg- (min -beg- (car c-fl-syn-tab-region))
-	     -end- (max -end- (cdr c-fl-syn-tab-region)))
-       (c-restore-string-fences -beg- -end-)
-       ,@body))))
 
 ;; Macros to put overlays (Emacs) or extents (XEmacs) on buffer text.
 ;; For our purposes, these are characterized by being possible to

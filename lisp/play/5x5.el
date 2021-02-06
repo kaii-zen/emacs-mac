@@ -31,7 +31,7 @@
 ;; o The code for updating the grid needs to be re-done.  At the moment it
 ;;   simply re-draws the grid every time a move is made.
 ;;
-;; o Look into tarting up the display with color.  gamegrid.el looks
+;; o Look into improving the display with color.  gamegrid.el looks
 ;;   interesting, perhaps that is the way to go?
 
 ;;; Thanks:
@@ -47,8 +47,6 @@
 
 ;;; Code:
 
-;; Things we need.
-
 (eval-when-compile (require 'cl-lib))
 
 ;; Customize options.
@@ -60,55 +58,50 @@
 
 (defcustom 5x5-grid-size 5
   "Size of the playing area."
-  :type  'integer
-  :group '5x5)
+  :type  'integer)
 
 (defcustom 5x5-x-scale 4
   "X scaling factor for drawing the grid."
-  :type  'integer
-  :group '5x5)
+  :type  'integer)
 
 (defcustom 5x5-y-scale 3
   "Y scaling factor for drawing the grid."
-  :type  'integer
-  :group '5x5)
+  :type  'integer)
 
 (defcustom 5x5-animate-delay .01
   "Delay in seconds when animating a solution crack."
-  :type  'number
-  :group '5x5)
+  :type  'number)
 
 (defcustom 5x5-hassle-me t
   "Should 5x5 ask you when you want to do a destructive operation?"
-  :type  'boolean
-  :group '5x5)
+  :type  'boolean)
 
 (defcustom 5x5-mode-hook nil
   "Hook run on starting 5x5."
-  :type  'hook
-  :group '5x5)
+  :type  'hook)
 
 ;; Non-customize variables.
 
 (defmacro 5x5-defvar-local (var value doc)
   "Define VAR to VALUE with documentation DOC and make it buffer local."
+  (declare (obsolete defvar-local "28.1"))
   `(progn
      (defvar ,var ,value ,doc)
      (make-variable-buffer-local (quote ,var))))
 
-(5x5-defvar-local 5x5-grid nil
+(defvar-local 5x5-grid nil
   "5x5 grid contents.")
 
-(5x5-defvar-local 5x5-x-pos 2
+(defvar-local 5x5-x-pos 2
   "X position of cursor.")
 
-(5x5-defvar-local 5x5-y-pos 2
+(defvar-local 5x5-y-pos 2
   "Y position of cursor.")
 
-(5x5-defvar-local 5x5-moves 0
+(defvar-local 5x5-moves 0
   "Moves made.")
 
-(5x5-defvar-local 5x5-cracking nil
+(defvar-local 5x5-cracking nil
   "Are we in cracking mode?")
 
 (defvar 5x5-buffer-name "*5x5*"
@@ -148,7 +141,7 @@
     map)
   "Local keymap for the 5x5 game.")
 
-(5x5-defvar-local 5x5-solver-output nil
+(defvar-local 5x5-solver-output nil
   "List that is the output of an arithmetic solver.
 
 This list L is such that
@@ -582,7 +575,7 @@ Solutions are sorted from least to greatest Hamming weight."
 	       (math-sub dest org))))
 
 	   ;; transferm is the transfer matrix, ie it is the 25x25
-	   ;; matrix applied everytime a flip is carried out where a
+	   ;; matrix applied every time a flip is carried out where a
 	   ;; flip is defined by a 25x1 Dirac vector --- ie all zeros
 	   ;; but 1 in the position that is flipped.
 	   (transferm

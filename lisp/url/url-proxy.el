@@ -1,4 +1,4 @@
-;;; url-proxy.el --- Proxy server support
+;;; url-proxy.el --- Proxy server support  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1999, 2004-2021 Free Software Foundation, Inc.
 
@@ -22,7 +22,6 @@
 ;;; Code:
 
 (require 'url-parse)
-(autoload 'url-warn "url")
 
 (defun url-default-find-proxy-for-url (urlobj host)
   (cond
@@ -60,7 +59,7 @@
      ((string-match "^socks +" proxy)
       (concat "socks://" (substring proxy (match-end 0))))
      (t
-      (url-warn 'url (format "Unknown proxy directive: %s" proxy) 'critical)
+      (display-warning 'url (format "Unknown proxy directive: %s" proxy) :error)
       nil))))
 
 (autoload 'url-http "url-http")

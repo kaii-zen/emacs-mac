@@ -1,4 +1,4 @@
-;;; gnus-srvr.el --- virtual server support for Gnus
+;;; gnus-srvr.el --- virtual server support for Gnus  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
@@ -34,7 +34,7 @@
 (require 'gnus-range)
 (require 'gnus-cloud)
 
-(autoload 'gnus-group-make-nnir-group "nnir")
+(autoload 'gnus-group-read-ephemeral-search-group "nnselect")
 
 (defcustom gnus-server-exit-hook nil
   "Hook run when exiting the server buffer."
@@ -176,7 +176,7 @@ If nil, a faster, but more primitive, buffer is used instead."
 
     "g" gnus-server-regenerate-server
 
-    "G" gnus-group-make-nnir-group
+    "G" gnus-group-read-ephemeral-search-group
 
     "z" gnus-server-compact-server
 
@@ -262,8 +262,7 @@ The following commands are available:
   (setq mode-line-process nil)
   (buffer-disable-undo)
   (setq truncate-lines t)
-  (set (make-local-variable 'font-lock-defaults)
-       '(gnus-server-font-lock-keywords t)))
+  (setq-local font-lock-defaults '(gnus-server-font-lock-keywords t)))
 
 
 (defun gnus-server-insert-server-line (name method)
@@ -298,7 +297,7 @@ The following commands are available:
      (point)
      (prog1 (1+ (point))
        ;; Insert the text.
-       (eval gnus-server-line-format-spec))
+       (eval gnus-server-line-format-spec t))
      (list 'gnus-server (intern gnus-tmp-name)
            'gnus-named-server (intern (gnus-method-to-server method t))))))
 
@@ -309,7 +308,7 @@ The following commands are available:
   ;; `gnus-server-buffer' selected as the current buffer, but not always (I
   ;; bumped into it when starting from a dedicated *Group* frame, and
   ;; gnus-configure-windows opened *Server* into its own dedicated frame).
-  (with-current-buffer (get-buffer-create gnus-server-buffer)
+  (with-current-buffer (gnus-get-buffer-create gnus-server-buffer)
     (gnus-server-mode)
     (gnus-server-prepare)))
 
@@ -582,7 +581,7 @@ The following commands are available:
 (defun gnus-server-add-server (how where)
   (interactive
    (list (intern (gnus-completing-read "Server method"
-                                       (mapcar 'car gnus-valid-select-methods)
+                                       (mapcar #'car gnus-valid-select-methods)
                                        t))
 	 (read-string "Server name: ")))
   (when (assq where gnus-server-alist)
@@ -593,7 +592,8 @@ The following commands are available:
 (defun gnus-server-goto-server (server)
   "Jump to a server line."
   (interactive
-   (list (gnus-completing-read "Goto server" (mapcar 'car gnus-server-alist) t)))
+   (list (gnus-completing-read "Goto server"
+                               (mapcar #'car gnus-server-alist) t)))
   (let ((to (text-property-any (point-min) (point-max)
 			       'gnus-server (intern server))))
     (when to
@@ -612,10 +612,10 @@ The following commands are available:
     (gnus-close-server info)
     (gnus-edit-form
      info "Editing the server."
-     `(lambda (form)
-	(gnus-server-set-info ,server form)
-	(gnus-server-list-servers)
-	(gnus-server-position-point))
+     (lambda (form)
+       (gnus-server-set-info server form)
+       (gnus-server-list-servers)
+       (gnus-server-position-point))
      'edit-server)))
 
 (defun gnus-server-show-server (server)
@@ -626,7 +626,7 @@ The following commands are available:
   (let ((info (gnus-server-to-method server)))
     (gnus-edit-form
      info "Showing the server."
-     (lambda (form)
+     (lambda (_form)
        (gnus-server-position-point))
      'edit-server)))
 

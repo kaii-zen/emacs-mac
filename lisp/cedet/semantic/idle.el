@@ -135,10 +135,9 @@ it is unlikely the user would be ready to type again right away."
   :group 'semantic
   :type 'hook)
 
-(defvar semantic-idle-scheduler-mode nil
+(defvar-local semantic-idle-scheduler-mode nil
   "Non-nil if idle-scheduler minor mode is enabled.
 Use the command `semantic-idle-scheduler-mode' to change this variable.")
-(make-variable-buffer-local 'semantic-idle-scheduler-mode)
 
 (defcustom semantic-idle-scheduler-max-buffer-size 0
   "Maximum size in bytes of buffers where idle-scheduler is enabled.
@@ -472,11 +471,6 @@ This hook is not protected from lexical errors.")
 If any hook function throws an error, this variable is reset to nil.
 This hook is not protected from lexical errors.")
 
-(semantic-varalias-obsolete 'semantic-before-idle-scheduler-reparse-hooks
-			    'semantic-before-idle-scheduler-reparse-hook "23.2")
-(semantic-varalias-obsolete 'semantic-after-idle-scheduler-reparse-hooks
-			    'semantic-after-idle-scheduler-reparse-hook "23.2")
-
 (defun semantic-idle-scheduler-refresh-tags ()
   "Refreshes the current buffer's tags.
 This is called by `semantic-idle-scheduler-function' to update the
@@ -722,8 +716,7 @@ specific to a major mode.  For example, in jde mode:
 
 (defun semantic-idle-summary-useful-context-p ()
   "Non-nil if we should show a summary based on context."
-  (if (and (boundp 'font-lock-mode)
-	   font-lock-mode
+  (if (and font-lock-mode
 	   (memq (get-text-property (point) 'face)
 		 semantic-idle-summary-out-of-context-faces))
       ;; The best I can think of at the moment is to disable
@@ -733,10 +726,6 @@ specific to a major mode.  For example, in jde mode:
 
 (define-overloadable-function semantic-idle-summary-current-symbol-info ()
   "Return a string message describing the current context.")
-
-(make-obsolete-overload 'semantic-eldoc-current-symbol-info
-                        'semantic-idle-summary-current-symbol-info
-                        "23.2")
 
 (defcustom semantic-idle-summary-mode-hook nil
   "Hook run at the end of `semantic-idle-summary'."

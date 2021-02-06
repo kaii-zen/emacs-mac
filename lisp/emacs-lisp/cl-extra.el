@@ -72,8 +72,7 @@ strings case-insensitively."
   (cond ((eq x y) t)
 	((stringp x)
 	 (and (stringp y) (= (length x) (length y))
-	      (or (string-equal x y)
-		  (string-equal (downcase x) (downcase y))))) ;Lazy but simple!
+              (eq (compare-strings x nil nil y nil nil t) t)))
 	((numberp x)
 	 (and (numberp y) (= x y)))
 	((consp x)
@@ -202,15 +201,18 @@ the elements themselves.
 
 ;;;###autoload
 (defun cl-some (cl-pred cl-seq &rest cl-rest)
-  "Return true if PREDICATE is true of any element of SEQ or SEQs.
-If so, return the true (non-nil) value returned by PREDICATE.
+  "Say whether PREDICATE is true for any element in the SEQ sequences.
+More specifically, the return value of this function will be the
+same as the first return value of PREDICATE where PREDICATE has a
+non-nil value.
+
 \n(fn PREDICATE SEQ...)"
   (if (or cl-rest (nlistp cl-seq))
       (catch 'cl-some
-	(apply 'cl-map nil
-	       (function (lambda (&rest cl-x)
-			   (let ((cl-res (apply cl-pred cl-x)))
-			     (if cl-res (throw 'cl-some cl-res)))))
+        (apply #'cl-map nil
+               (lambda (&rest cl-x)
+                 (let ((cl-res (apply cl-pred cl-x)))
+                   (if cl-res (throw 'cl-some cl-res))))
 	       cl-seq cl-rest) nil)
     (let ((cl-x nil))
       (while (and cl-seq (not (setq cl-x (funcall cl-pred (pop cl-seq))))))
@@ -222,9 +224,9 @@ If so, return the true (non-nil) value returned by PREDICATE.
 \n(fn PREDICATE SEQ...)"
   (if (or cl-rest (nlistp cl-seq))
       (catch 'cl-every
-	(apply 'cl-map nil
-	       (function (lambda (&rest cl-x)
-			   (or (apply cl-pred cl-x) (throw 'cl-every nil))))
+        (apply #'cl-map nil
+               (lambda (&rest cl-x)
+                 (or (apply cl-pred cl-x) (throw 'cl-every nil)))
 	       cl-seq cl-rest) t)
     (while (and cl-seq (funcall cl-pred (car cl-seq)))
       (setq cl-seq (cdr cl-seq)))
@@ -247,14 +249,13 @@ If so, return the true (non-nil) value returned by PREDICATE.
   (or cl-base
       (setq cl-base (copy-sequence [0])))
   (map-keymap
-   (function
-    (lambda (cl-key cl-bind)
-      (aset cl-base (1- (length cl-base)) cl-key)
-      (if (keymapp cl-bind)
-	  (cl--map-keymap-recursively
-	   cl-func-rec cl-bind
-	   (vconcat cl-base (list 0)))
-	(funcall cl-func-rec cl-base cl-bind))))
+   (lambda (cl-key cl-bind)
+     (aset cl-base (1- (length cl-base)) cl-key)
+     (if (keymapp cl-bind)
+         (cl--map-keymap-recursively
+          cl-func-rec cl-bind
+          (vconcat cl-base (list 0)))
+       (funcall cl-func-rec cl-base cl-bind)))
    cl-map))
 
 ;;;###autoload
@@ -553,10 +554,9 @@ too large if positive or too small if negative)."
   (seq-subseq seq start end))
 
 ;;;###autoload
-(defun cl-concatenate (type &rest sequences)
+(defalias 'cl-concatenate #'seq-concatenate
   "Concatenate, into a sequence of type TYPE, the argument SEQUENCEs.
-\n(fn TYPE SEQUENCE...)"
-  (apply #'seq-concatenate type sequences))
+\n(fn TYPE SEQUENCE...)")
 
 ;;; List functions.
 
@@ -912,6 +912,8 @@ Outputs to the current buffer."
       (mapc #'cl--describe-class-slot cslots))))
 
 
+(make-obsolete-variable 'cl-extra-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 (run-hooks 'cl-extra-load-hook)
 
 ;; Local variables:

@@ -25,7 +25,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <unistd.h>
 
 #include "lisp.h"
-#include "ptr-bounds.h"
 #include "termchar.h"
 /* cm.h must come after dispextern.h on Windows.  */
 #include "dispextern.h"
@@ -881,7 +880,7 @@ clear_glyph_row (struct glyph_row *row)
   enum { off = offsetof (struct glyph_row, used) };
 
   /* Zero everything except pointers in `glyphs'.  */
-  memset (row->used, 0, sizeof *row - off);
+  memset ((char *) row + off, 0, sizeof *row - off);
 }
 
 
@@ -1831,7 +1830,7 @@ adjust_frame_glyphs (struct frame *f)
   /* Don't forget the buffer for decode_mode_spec.  */
   adjust_decode_mode_spec_buffer (f);
 
-  f->glyphs_initialized_p = 1;
+  f->glyphs_initialized_p = true;
 
   unblock_input ();
 }
@@ -2252,7 +2251,7 @@ free_glyphs (struct frame *f)
       /* Block interrupt input so that we don't get surprised by an X
          event while we're in an inconsistent state.  */
       block_input ();
-      f->glyphs_initialized_p = 0;
+      f->glyphs_initialized_p = false;
 
       /* Release window sub-matrices.  */
       if (!NILP (f->root_window))
@@ -3241,9 +3240,16 @@ update_frame (struct frame *f, bool force_p, bool inhibit_hairy_id_p)
       build_frame_matrix (f);
 
       /* Update the display.  */
-      update_begin (f);
-      paused_p = update_frame_1 (f, force_p, inhibit_hairy_id_p, 1, false);
-      update_end (f);
+      if (FRAME_INITIAL_P (f))
+        /* No actual display to update so the "update" is a nop and
+           obviously isn't interrupted by pending input.  */
+        paused_p = false;
+      else
+        {
+          update_begin (f);
+          paused_p = update_frame_1 (f, force_p, inhibit_hairy_id_p, 1, false);
+          update_end (f);
+        }
 
       if (FRAME_TERMCAP_P (f) || FRAME_MSDOS_P (f))
         {
@@ -3319,6 +3325,53 @@ update_frame_with_menu (struct frame *f, int row, int col)
   /* Reset flags indicating that a window should be updated.  */
   set_window_update_flags (root_window, false);
   display_completed = !paused_p;
+}
+
+/* Update the mouse position for a frame F.  This handles both
+   updating the display for mouse-face propreties and updating the
+   help echo text.
+
+   Returns the number of events generated.  */
+int
+update_mouse_position (struct frame *f, int x, int y)
+{
+  previous_help_echo_string = help_echo_string;
+  help_echo_string = Qnil;
+
+  note_mouse_highlight (f, x, y);
+
+  /* If the contents of the global variable help_echo_string
+     has changed, generate a HELP_EVENT.  */
+  if (!NILP (help_echo_string)
+      || !NILP (previous_help_echo_string))
+    {
+      Lisp_Object frame;
+      XSETFRAME (frame, f);
+
+      gen_help_event (help_echo_string, frame, help_echo_window,
+                      help_echo_object, help_echo_pos);
+      return 1;
+    }
+
+  return 0;
+}
+
+DEFUN ("display--update-for-mouse-movement", Fdisplay__update_for_mouse_movement,
+       Sdisplay__update_for_mouse_movement, 2, 2, 0,
+       doc: /* Handle mouse movement detected by Lisp code.
+
+This function should be called when Lisp code detects the mouse has
+moved, even if `track-mouse' is nil.  This handles updates that do not
+rely on input events such as updating display for mouse-face
+properties or updating the help echo text.  */)
+  (Lisp_Object mouse_x, Lisp_Object mouse_y)
+{
+  CHECK_FIXNUM (mouse_x);
+  CHECK_FIXNUM (mouse_y);
+
+  update_mouse_position (SELECTED_FRAME (), XFIXNUM (mouse_x),
+                         XFIXNUM (mouse_y));
+  return Qnil;
 }
 
 
@@ -4895,12 +4948,6 @@ scrolling (struct frame *frame)
   unsigned *new_hash = old_hash + height;
   int *draw_cost = (int *) (new_hash + height);
   int *old_draw_cost = draw_cost + height;
-  old_hash = ptr_bounds_clip (old_hash, height * sizeof *old_hash);
-  new_hash = ptr_bounds_clip (new_hash, height * sizeof *new_hash);
-  draw_cost = ptr_bounds_clip (draw_cost, height * sizeof *draw_cost);
-  old_draw_cost = ptr_bounds_clip (old_draw_cost,
-				   height * sizeof *old_draw_cost);
-
   eassert (current_matrix);
 
   /* Compute hash codes of all the lines.  Also calculate number of
@@ -6002,7 +6049,14 @@ additional wait period, in milliseconds; this is for backwards compatibility.
    READING is true if reading input.
    If DISPLAY_OPTION is >0 display process output while waiting.
    If DISPLAY_OPTION is >1 perform an initial redisplay before waiting.
-*/
+
+   Returns a boolean Qt if we waited the full time and returns Qnil if the
+   wait was interrupted by incoming process output or keyboard events.
+
+   FIXME: When `wait_reading_process_output` returns early because of
+   process output, instead of returning nil we should loop and wait some
+   more (i.e. until either there's pending input events or the timeout
+   expired).  */
 
 Lisp_Object
 sit_for (Lisp_Object timeout, bool reading, int display_option)
@@ -6010,6 +6064,8 @@ sit_for (Lisp_Object timeout, bool reading, int display_option)
   intmax_t sec;
   int nsec;
   bool do_display = display_option > 0;
+  bool curbuf_eq_winbuf
+    = (current_buffer == XBUFFER (XWINDOW (selected_window)->contents));
 
   swallow_events (do_display);
 
@@ -6061,10 +6117,18 @@ sit_for (Lisp_Object timeout, bool reading, int display_option)
   gobble_input ();
 #endif
 
-  wait_reading_process_output (sec, nsec, reading ? -1 : 1, do_display,
-			       Qnil, NULL, 0);
+  int nbytes
+    = wait_reading_process_output (sec, nsec, reading ? -1 : 1, do_display,
+			           Qnil, NULL, 0);
 
-  return detect_input_pending () ? Qnil : Qt;
+  if (reading && curbuf_eq_winbuf)
+    /* Timers and process filters/sentinels may have changed the selected
+       window (e.g. in response to a connection from emacsclient), in which
+       case we should follow it (unless we weren't in the selected-window's
+       buffer to start with).  */
+    set_buffer_internal (XBUFFER (XWINDOW (selected_window)->contents));
+
+  return (nbytes > 0 || detect_input_pending ()) ? Qnil : Qt;
 }
 
 
@@ -6507,6 +6571,7 @@ syms_of_display (void)
 {
   defsubr (&Sredraw_frame);
   defsubr (&Sredraw_display);
+  defsubr (&Sdisplay__update_for_mouse_movement);
   defsubr (&Sframe_or_buffer_changed_p);
   defsubr (&Sopen_termscript);
   defsubr (&Sding);

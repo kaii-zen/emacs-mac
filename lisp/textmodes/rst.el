@@ -568,9 +568,7 @@ After interpretation of ARGS the results are concatenated as for
 		(regexp-quote (char-to-string re)))
 	       ((listp re)
 		(let ((nested
-		       (mapcar (lambda (elt)
-				 (rst-re elt))
-			       (cdr re))))
+		       (mapcar #'rst-re (cdr re))))
 		  (cond
 		   ((eq (car re) :seq)
 		    (mapconcat #'identity nested ""))
@@ -1302,7 +1300,8 @@ This inherits from Text mode.")
     (modify-syntax-entry ?% "." st)
     (modify-syntax-entry ?& "." st)
     (modify-syntax-entry ?' "." st)
-    (modify-syntax-entry ?* "." st)
+    (modify-syntax-entry ?` "\"`  " st)
+    (modify-syntax-entry ?* "\"*  " st)
     (modify-syntax-entry ?+ "." st)
     (modify-syntax-entry ?- "." st)
     (modify-syntax-entry ?/ "." st)
@@ -1330,7 +1329,6 @@ The hook for `text-mode' is run before this one."
 ;; Pull in variable definitions silencing byte-compiler.
 (require 'newcomment)
 
-(defvar electric-pair-pairs)
 (defvar electric-indent-inhibit)
 
 ;; Use rst-mode for *.rst and *.rest files.  Many ReStructured-Text files
@@ -1387,8 +1385,6 @@ highlighting.
   (setq-local comment-region-function #'rst-comment-region)
   (setq-local uncomment-region-function #'rst-uncomment-region)
 
-  (setq-local electric-pair-pairs '((?\" . ?\") (?\* . ?\*) (?\` . ?\`)))
-
   ;; Imenu and which function.
   ;; FIXME: Check documentation of `which-function' for alternative ways to
   ;;        determine the current function name.
@@ -1400,7 +1396,8 @@ highlighting.
 		t nil nil nil
 		(font-lock-multiline . t)
 		(font-lock-mark-block-function . mark-paragraph)))
-  (add-hook 'font-lock-extend-region-functions #'rst-font-lock-extend-region t)
+  (add-hook 'font-lock-extend-region-functions
+            #'rst-font-lock-extend-region nil t)
 
   ;; Text after a changed line may need new fontification.
   (setq-local jit-lock-contextually t)
@@ -2363,7 +2360,7 @@ If user selects enumerations, a further prompt is given.  User need to
 input a starting item, for example 'e' for 'A)' style.  The position is
 also arranged by `rst-insert-list-new-tag'."
   (let* ((itemstyle (completing-read
-		     "Select preferred item style [#.]: "
+		     (format-prompt "Select preferred item style" "#.")
 		     rst-initial-items nil t nil nil "#."))
 	 (cnt (if (string-match (rst-re 'cntexp-tag) itemstyle)
 		  (match-string 0 itemstyle)))
@@ -2371,21 +2368,23 @@ also arranged by `rst-insert-list-new-tag'."
 	  (save-match-data
 	    (cond
 	     ((equal cnt "a")
-	      (let ((itemno (read-string "Give starting value [a]: "
-					 nil nil "a")))
+	      (let ((itemno (read-string
+                             (format-prompt "Give starting value" "a")
+			     nil nil "a")))
 		(downcase (substring itemno 0 1))))
 	     ((equal cnt "A")
-	      (let ((itemno (read-string "Give starting value [A]: "
-					 nil nil "A")))
+	      (let ((itemno (read-string
+                             (format-prompt "Give starting value" "A")
+			     nil nil "A")))
 		(upcase (substring itemno 0 1))))
 	     ((equal cnt "I")
-	      (let ((itemno (read-number "Give starting value [1]: " 1)))
+	      (let ((itemno (read-number "Give starting value: " 1)))
 		(rst-arabic-to-roman itemno)))
 	     ((equal cnt "i")
-	      (let ((itemno (read-number "Give starting value [1]: " 1)))
+	      (let ((itemno (read-number "Give starting value: " 1)))
 		(downcase (rst-arabic-to-roman itemno))))
 	     ((equal cnt "1")
-	      (let ((itemno (read-number "Give starting value [1]: " 1)))
+	      (let ((itemno (read-number "Give starting value: " 1)))
 		(number-to-string itemno)))))))
     (if no
 	(setq itemstyle (replace-match no t t itemstyle)))
@@ -2860,7 +2859,7 @@ file-write hook to always make it up-to-date automatically."
 ;; FIXME: Updating the toc on saving would be nice. However, this doesn't work
 ;;        correctly:
 ;;
-;;	  (add-hook 'write-contents-hooks 'rst-toc-update-fun)
+;;	  (add-hook 'write-contents-functions 'rst-toc-update-fun)
 ;;	  (defun rst-toc-update-fun ()
 ;;	    ;; Disable undo for the write file hook.
 ;;	    (let ((buffer-undo-list t)) (rst-toc-update) ))
@@ -3576,8 +3575,6 @@ Region is from BEG to END.  With WITH-EMPTY prefix empty lines too."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Font lock
 
-(require 'font-lock)
-
 ;; FIXME: The obsolete variables need to disappear.
 
 ;; The following versions have been done inside Emacs and should not be
@@ -3630,10 +3627,7 @@ Region is from BEG to END.  With WITH-EMPTY prefix empty lines too."
                         "customize the face `rst-definition' instead."
                         "24.1")
 
-;; XEmacs compatibility (?).
-(defface rst-directive (if (boundp 'font-lock-builtin-face)
-                           '((t :inherit font-lock-builtin-face))
-                         '((t :inherit font-lock-preprocessor-face)))
+(defface rst-directive '((t :inherit font-lock-builtin-face))
   "Face used for directives and roles."
   :version "24.1"
   :group 'rst-faces)

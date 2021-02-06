@@ -165,7 +165,7 @@ parenthetical grouping.")
     (modify-syntax-entry ?| "."   table)
     (modify-syntax-entry ?! "."   table)
     (modify-syntax-entry ?\\ "."  table)
-    (modify-syntax-entry ?\' "."  table)
+    (modify-syntax-entry ?\' "\""  table)
     (modify-syntax-entry ?\` "."  table)
     (modify-syntax-entry ?. "."   table)
     (modify-syntax-entry ?\" "\"" table)
@@ -619,10 +619,7 @@ Key bindings:
   (add-hook 'before-save-hook 'octave-sync-function-file-names nil t)
   (setq-local beginning-of-defun-function 'octave-beginning-of-defun)
   (and octave-font-lock-texinfo-comment (octave-font-lock-texinfo-comment))
-  (add-function :before-until (local 'eldoc-documentation-function)
-                'octave-eldoc-function)
-
-  (easy-menu-add octave-mode-menu))
+  (add-hook 'eldoc-documentation-functions 'octave-eldoc-function nil t))
 
 
 (defcustom inferior-octave-program "octave"
@@ -756,7 +753,7 @@ Key bindings:
   (setq font-lock-defaults '(inferior-octave-font-lock-keywords nil nil))
 
   (setq-local info-lookup-mode 'octave-mode)
-  (setq-local eldoc-documentation-function 'octave-eldoc-function)
+  (add-hook 'eldoc-documentation-functions 'octave-eldoc-function nil t)
 
   (setq-local comint-input-ring-file-name
               (or (getenv "OCTAVE_HISTFILE") "~/.octave_hist"))
@@ -967,8 +964,7 @@ output is passed to the filter `inferior-octave-output-digest'."
 	  (setq list (cdr list)))
       (set-process-filter proc filter))))
 
-(defvar inferior-octave-directory-tracker-resync nil)
-(make-variable-buffer-local 'inferior-octave-directory-tracker-resync)
+(defvar-local inferior-octave-directory-tracker-resync nil)
 
 (defun inferior-octave-directory-tracker (string)
   "Tracks `cd' commands issued to the inferior Octave process.
@@ -1049,10 +1045,9 @@ directory and makes this the current buffer's default directory."
                  (save-excursion
                    (skip-syntax-backward "-(")
                    (thing-at-point 'symbol)))))
-    (completing-read
-     (format (if def "Function (default %s): " "Function: ") def)
-     (inferior-octave-completion-table)
-     nil nil nil nil def)))
+    (completing-read (format-prompt "Function" def)
+                     (inferior-octave-completion-table)
+                     nil nil nil nil def)))
 
 (defun octave-goto-function-definition (fn)
   "Go to the function definition of FN in current buffer."
@@ -1173,10 +1168,7 @@ q: Don't fix\n" func file))
                               (min (line-end-position 4) end)
                               t)
                          (match-string 1))))
-           (old-func (read-string (format (if old-func
-                                              "Name to replace (default %s): "
-                                            "Name to replace: ")
-                                          old-func)
+           (old-func (read-string (format-prompt "Name to replace" old-func)
                                   nil nil old-func)))
       (if (and func old-func (not (equal func old-func)))
           (perform-replace old-func func 'query
@@ -1455,7 +1447,7 @@ The block marked is the one that contains point or follows point."
 Prompt for the function's name, arguments and return values (to be
 entered without parens)."
   (let* ((defname (file-name-sans-extension (buffer-name)))
-         (name (read-string (format "Function name (default %s): " defname)
+         (name (read-string (format-prompt "Function name" defname)
                             nil nil defname))
          (args (read-string "Arguments: "))
          (vals (read-string "Return values: ")))
@@ -1519,28 +1511,13 @@ current buffer file unless called with a prefix arg \\[universal-argument]."
   (interactive "r")
   (inferior-octave t)
   (let ((proc inferior-octave-process)
-        (string (buffer-substring-no-properties beg end))
-        line)
+        (string (buffer-substring-no-properties beg end)))
     (with-current-buffer inferior-octave-buffer
       ;; https://lists.gnu.org/r/emacs-devel/2013-10/msg00095.html
       (compilation-forget-errors)
-      (setq inferior-octave-output-list nil)
-      (while (not (string-equal string ""))
-        (if (string-match "\n" string)
-            (setq line (substring string 0 (match-beginning 0))
-                  string (substring string (match-end 0)))
-          (setq line string string ""))
-        (setq inferior-octave-receive-in-progress t)
-        (inferior-octave-send-list-and-digest (list (concat line "\n")))
-        (while inferior-octave-receive-in-progress
-          (accept-process-output proc))
-        (insert-before-markers
-         (mapconcat 'identity
-                    (append
-                     (if octave-send-echo-input (list line) (list ""))
-                     inferior-octave-output-list
-                     (list inferior-octave-output-string))
-                    "\n")))))
+      (insert-before-markers string "\n")
+      (comint-send-string proc (concat string "\n")))
+    (deactivate-mark))
   (if octave-send-show-buffer
       (display-buffer inferior-octave-buffer)))
 
@@ -1612,8 +1589,9 @@ code line."
 
 (defun octave-eldoc-function-signatures (fn)
   (unless (equal fn (car octave-eldoc-cache))
-    (inferior-octave-send-list-and-digest
-     (list (format "print_usage ('%s');\n" fn)))
+    (while-no-input
+      (inferior-octave-send-list-and-digest
+       (list (format "print_usage ('%s');\n" fn))))
     (let (result)
       (dolist (line inferior-octave-output-list)
         ;; The help output has changed a few times in GNU Octave.
@@ -1640,8 +1618,8 @@ code line."
                   (nreverse result)))))
   (cdr octave-eldoc-cache))
 
-(defun octave-eldoc-function ()
-  "A function for `eldoc-documentation-function' (which see)."
+(defun octave-eldoc-function (&rest _ignored)
+  "A function for `eldoc-documentation-functions' (which see)."
   (when (inferior-octave-process-live-p)
     (let* ((ppss (syntax-ppss))
            (paren-pos (cadr ppss))

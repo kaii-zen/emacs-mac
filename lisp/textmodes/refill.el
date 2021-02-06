@@ -88,10 +88,9 @@
 ;;;   "Refilling paragraphs on changes."
 ;;;   :group 'fill)
 
-(defvar refill-ignorable-overlay nil
+(defvar-local refill-ignorable-overlay nil
   "Portion of the most recently filled paragraph not needing filling.
 This is used to optimize refilling.")
-(make-variable-buffer-local 'refill-ignorable-overlay)
 
 (defun refill-adjust-ignorable-overlay (overlay afterp beg end &optional len)
   "Adjust OVERLAY to not include the about-to-be-modified region."
@@ -149,7 +148,7 @@ This is used to optimize refilling.")
   "Like `fill-paragraph' but don't delete whitespace at paragraph end."
   (refill-fill-paragraph-at (point) arg))
 
-(defvar refill-doit nil
+(defvar-local refill-doit nil
   "Non-nil tells `refill-post-command-function' to do its processing.
 Set by `refill-after-change-function' in `after-change-functions' and
 unset by `refill-post-command-function' in `post-command-hook', and
@@ -157,7 +156,6 @@ sometimes `refill-pre-command-function' in `pre-command-hook'.  This
 ensures refilling is only done once per command that causes a change,
 regardless of the number of after-change calls from commands doing
 complex processing.")
-(make-variable-buffer-local 'refill-doit)
 
 (defun refill-after-change-function (beg end len)
   "Function for `after-change-functions' which just sets `refill-doit'."
@@ -237,16 +235,14 @@ For true \"word wrap\" behavior, use `visual-line-mode' instead."
 	(add-hook 'after-change-functions 'refill-after-change-function nil t)
 	(add-hook 'post-command-hook 'refill-post-command-function nil t)
 	(add-hook 'pre-command-hook 'refill-pre-command-function nil t)
-	(set (make-local-variable 'refill-saved-state)
-	     (mapcar (lambda (s) (cons s (symbol-value s)))
-		     '(fill-paragraph-function auto-fill-function)))
+        (setq-local refill-saved-state
+                    (mapcar (lambda (s) (cons s (symbol-value s)))
+                            '(fill-paragraph-function auto-fill-function)))
 	;; This provides the test for recursive paragraph filling.
-	(set (make-local-variable 'fill-paragraph-function)
-	     'refill-fill-paragraph)
+        (setq-local fill-paragraph-function #'refill-fill-paragraph)
 	;; When using justification, doing DEL on 2 spaces should remove
 	;; both, otherwise, the subsequent refill will undo the DEL.
-	(set (make-local-variable 'backward-delete-char-untabify-method)
-	     'hungry)
+        (setq-local backward-delete-char-untabify-method 'hungry)
 	(setq refill-ignorable-overlay (make-overlay 1 1 nil nil t))
 	(overlay-put refill-ignorable-overlay 'modification-hooks
 		     '(refill-adjust-ignorable-overlay))

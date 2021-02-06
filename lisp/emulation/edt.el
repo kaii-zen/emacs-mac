@@ -178,10 +178,8 @@
 (defvar edt-user-global-map)
 (defvar rect-start-point)
 
-;;;
-;;;  Version Information
-;;;
 (defconst edt-version "4.0" "EDT Emulation version number.")
+(make-obsolete-variable 'edt-version nil "28.1")
 
 ;;;
 ;;;  User Configurable Variables
@@ -693,7 +691,7 @@ Optional argument FIND is t if this function is called from `edt-find'."
 (defun edt-find ()
   "Find first occurrence of string in current direction and save it."
   (interactive)
-  (set 'edt-find-last-text (read-string "Search: "))
+  (setq edt-find-last-text (read-string "Search: "))
   (if (equal edt-direction-string edt-forward-string)
       (edt-find-forward t)
       (edt-find-backward t)))
@@ -790,7 +788,7 @@ Argument NUM is the number of lines to delete."
 In select mode, selected text is highlighted."
   (if arg
       (progn
-	(set (make-local-variable 'edt-select-mode) 'edt-select-mode-current)
+        (setq-local edt-select-mode 'edt-select-mode-current)
 	(setq rect-start-point (window-point)))
     (progn
       (kill-local-variable 'edt-select-mode)))
@@ -1323,8 +1321,8 @@ Definition is stored in `edt-last-replaced-key-definition'."
   (if edt-last-replaced-key-definition
       (progn
         (let (edt-key-definition)
-          (set 'edt-key-definition
-               (read-key-sequence "Press the key to be restored: "))
+          (setq edt-key-definition
+                (read-key-sequence "Press the key to be restored: "))
           (if (string-equal "\C-m" edt-key-definition)
               (message "Key not restored")
 	    (progn
@@ -1641,12 +1639,12 @@ Argument NUM is the number of times to duplicate the line."
     (progn
       (end-kbd-macro nil)
       (let (edt-key-definition)
-	(set 'edt-key-definition
-	     (read-key-sequence "Enter key for binding: "))
+        (setq edt-key-definition
+              (read-key-sequence "Enter key for binding: "))
 	(if (string-equal "\C-m" edt-key-definition)
 	    (message "Key sequence not remembered")
 	  (progn
-	    (set 'edt-learn-macro-count (+ edt-learn-macro-count 1))
+            (setq edt-learn-macro-count (+ edt-learn-macro-count 1))
 	    (setq edt-last-replaced-key-definition
 		  (lookup-key (current-global-map)
 			      edt-key-definition))
@@ -2163,8 +2161,7 @@ Argument KEY is the name of a key.  It can be a standard key or a function key.
 Argument BINDING is the Emacs function to be bound to <KEY>."
   (define-key edt-user-global-map key binding))
 
-;;  For backward compatibility to existing edt-user.el files.
-(fset 'edt-bind-standard-key (symbol-function 'edt-bind-key))
+(define-obsolete-function-alias 'edt-bind-standard-key #'edt-bind-key "28.1")
 
 (defun edt-bind-gold-key (key gold-binding)
   "Binds <GOLD> standard key sequences to custom bindings in the EDT Emulator.

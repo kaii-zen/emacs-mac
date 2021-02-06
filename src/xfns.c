@@ -1236,13 +1236,10 @@ x_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   for (i = 0; i < mouse_cursor_max; i++)
     {
       Lisp_Object shape_var = *mouse_cursor_types[i].shape_var_ptr;
-      if (!NILP (shape_var))
-	{
-	  CHECK_TYPE_RANGED_INTEGER (unsigned, shape_var);
-	  cursor_data.cursor_num[i] = XFIXNUM (shape_var);
-	}
-      else
-	cursor_data.cursor_num[i] = mouse_cursor_types[i].default_shape;
+      cursor_data.cursor_num[i]
+	= (!NILP (shape_var)
+	   ? check_uinteger_max (shape_var, UINT_MAX)
+	   : mouse_cursor_types[i].default_shape);
     }
 
   block_input ();
@@ -1803,14 +1800,33 @@ x_change_tool_bar_height (struct frame *f, int height)
 #endif /* USE_GTK */
 }
 
+static void
+x_set_child_frame_border_width (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+  int border = check_int_nonnegative (arg);
+
+  if (border != FRAME_CHILD_FRAME_BORDER_WIDTH (f))
+    {
+      f->child_frame_border_width = border;
+
+#ifdef USE_X_TOOLKIT
+      if (FRAME_X_OUTPUT (f)->edit_widget)
+	widget_store_internal_border (FRAME_X_OUTPUT (f)->edit_widget);
+#endif
+
+      if (FRAME_X_WINDOW (f))
+	{
+	  adjust_frame_size (f, -1, -1, 3, false, Qchild_frame_border_width);
+	  x_clear_under_internal_border (f);
+	}
+    }
+
+}
 
 static void
 x_set_internal_border_width (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-  int border;
-
-  CHECK_TYPE_RANGED_INTEGER (int, arg);
-  border = max (XFIXNUM (arg), 0);
+  int border = check_int_nonnegative (arg);
 
   if (border != FRAME_INTERNAL_BORDER_WIDTH (f))
     {
@@ -2327,24 +2343,6 @@ hack_wm_protocols (struct frame *f, Widget widget)
 static XFontSet xic_create_xfontset (struct frame *);
 static XIMStyle best_xim_style (XIMStyles *);
 
-
-/* Supported XIM styles, ordered by preference.  */
-
-static const XIMStyle supported_xim_styles[] =
-{
-  XIMPreeditPosition | XIMStatusArea,
-  XIMPreeditPosition | XIMStatusNothing,
-  XIMPreeditPosition | XIMStatusNone,
-  XIMPreeditNothing | XIMStatusArea,
-  XIMPreeditNothing | XIMStatusNothing,
-  XIMPreeditNothing | XIMStatusNone,
-  XIMPreeditNone | XIMStatusArea,
-  XIMPreeditNone | XIMStatusNothing,
-  XIMPreeditNone | XIMStatusNone,
-  0,
-};
-
-
 #if defined HAVE_X_WINDOWS && defined USE_X_TOOLKIT
 /* Create an X fontset on frame F with base font name BASE_FONTNAME.  */
 
@@ -2628,15 +2626,8 @@ xic_free_xfontset (struct frame *f)
 static XIMStyle
 best_xim_style (XIMStyles *xim)
 {
-  int i, j;
-  int nr_supported = ARRAYELTS (supported_xim_styles);
-
-  for (i = 0; i < nr_supported; ++i)
-    for (j = 0; j < xim->count_styles; ++j)
-      if (supported_xim_styles[i] == xim->supported_styles[j])
-	return supported_xim_styles[i];
-
-  /* Return the default style.  */
+  /* Return the default style. This is what GTK3 uses and
+     should work fine with all modern input methods.  */
   return XIMPreeditNothing | XIMStatusNothing;
 }
 
@@ -3382,10 +3373,12 @@ x_icon (struct frame *f, Lisp_Object parms)
     = gui_frame_get_and_record_arg (f, parms, Qicon_left, 0, 0, RES_TYPE_NUMBER);
   Lisp_Object icon_y
     = gui_frame_get_and_record_arg (f, parms, Qicon_top, 0, 0, RES_TYPE_NUMBER);
+  int icon_xval, icon_yval;
+
   if (!EQ (icon_x, Qunbound) && !EQ (icon_y, Qunbound))
     {
-      CHECK_TYPE_RANGED_INTEGER (int, icon_x);
-      CHECK_TYPE_RANGED_INTEGER (int, icon_y);
+      icon_xval = check_integer_range (icon_x, INT_MIN, INT_MAX);
+      icon_yval = check_integer_range (icon_y, INT_MIN, INT_MAX);
     }
   else if (!EQ (icon_x, Qunbound) || !EQ (icon_y, Qunbound))
     error ("Both left and top icon corners of icon must be specified");
@@ -3393,7 +3386,7 @@ x_icon (struct frame *f, Lisp_Object parms)
   block_input ();
 
   if (! EQ (icon_x, Qunbound))
-    x_wm_set_icon_position (f, XFIXNUM (icon_x), XFIXNUM (icon_y));
+    x_wm_set_icon_position (f, icon_xval, icon_yval);
 
 #if false /* gui_display_get_arg removes the visibility parameter as a
 	     side effect, but x_create_frame still needs it.  */
@@ -3884,8 +3877,6 @@ This function is an internal primitive--use `make-frame' instead.  */)
 #ifdef HAVE_HARFBUZZ
   register_font_driver (&xfthbfont_driver, f);
 #endif
-#else	/* not HAVE_XFT */
-  register_font_driver (&ftxfont_driver, f);
 #endif	/* not HAVE_XFT */
 #endif	/* HAVE_FREETYPE */
 #endif	/* not USE_CAIRO */
@@ -3928,6 +3919,29 @@ This function is an internal primitive--use `make-frame' instead.  */)
 	parms = Fcons (Fcons (Qinternal_border_width, value),
 		       parms);
     }
+
+  /* Same for child frames.  */
+  if (NILP (Fassq (Qchild_frame_border_width, parms)))
+    {
+      Lisp_Object value;
+
+      value = gui_display_get_arg (dpyinfo, parms, Qchild_frame_border_width,
+                                   "childFrameBorderWidth", "childFrameBorderWidth",
+                                   RES_TYPE_NUMBER);
+      if (! EQ (value, Qunbound))
+	parms = Fcons (Fcons (Qchild_frame_border_width, value),
+		       parms);
+
+    }
+
+  gui_default_parameter (f, parms, Qchild_frame_border_width,
+#ifdef USE_GTK /* We used to impose 0 in xg_create_frame_widgets.  */
+			 make_fixnum (0),
+#else
+			 make_fixnum (1),
+#endif
+			 "childFrameBorderWidth", "childFrameBorderWidth",
+			 RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qinternal_border_width,
 #ifdef USE_GTK /* We used to impose 0 in xg_create_frame_widgets.  */
                          make_fixnum (0),
@@ -5563,12 +5577,12 @@ The coordinates X and Y are interpreted in pixels relative to a position
   if (FRAME_INITIAL_P (f) || !FRAME_X_P (f))
     return Qnil;
 
-  CHECK_TYPE_RANGED_INTEGER (int, x);
-  CHECK_TYPE_RANGED_INTEGER (int, y);
+  int xval = check_integer_range (x, INT_MIN, INT_MAX);
+  int yval = check_integer_range (y, INT_MIN, INT_MAX);
 
   block_input ();
   XWarpPointer (FRAME_X_DISPLAY (f), None, DefaultRootWindow (FRAME_X_DISPLAY (f)),
-		0, 0, 0, 0, XFIXNUM (x), XFIXNUM (y));
+		0, 0, 0, 0, xval, yval);
   unblock_input ();
 
   return Qnil;
@@ -5896,7 +5910,8 @@ If WINDOW-ID is non-nil, change the property of that window instead
       elsize = element_format == 32 ? sizeof (long) : element_format >> 3;
       data = xnmalloc (nelements, elsize);
 
-      x_fill_property_data (FRAME_X_DISPLAY (f), value, data, element_format);
+      x_fill_property_data (FRAME_X_DISPLAY (f), value, data, nelements,
+                            element_format);
     }
   else
     {
@@ -6202,10 +6217,10 @@ Otherwise, the return value is a vector with the following fields:
     {
       XFree (tmp_data);
 
-      prop_attr = make_uninit_vector (3);
-      ASET (prop_attr, 0, make_fixnum (actual_type));
-      ASET (prop_attr, 1, make_fixnum (actual_format));
-      ASET (prop_attr, 2, make_fixnum (bytes_remaining / (actual_format >> 3)));
+      prop_attr = CALLN (Fvector,
+			 make_fixnum (actual_type),
+			 make_fixnum (actual_format),
+			 make_fixnum (bytes_remaining / (actual_format >> 3)));
     }
 
   unblock_input ();
@@ -6375,8 +6390,6 @@ x_create_tip_frame (struct x_display_info *dpyinfo, Lisp_Object parms)
 #ifdef HAVE_HARFBUZZ
   register_font_driver (&xfthbfont_driver, f);
 #endif
-#else	/* not HAVE_XFT */
-  register_font_driver (&ftxfont_driver, f);
 #endif	/* not HAVE_XFT */
 #endif	/* HAVE_FREETYPE */
 #endif	/* not USE_CAIRO */
@@ -6542,7 +6555,7 @@ x_create_tip_frame (struct x_display_info *dpyinfo, Lisp_Object parms)
      Frame parameters may be changed if .Xdefaults contains
      specifications for the default font.  For example, if there is an
      `Emacs.default.attributeBackground: pink', the `background-color'
-     attribute of the frame get's set, which let's the internal border
+     attribute of the frame gets set, which let's the internal border
      of the tooltip frame appear in pink.  Prevent this.  */
   {
     Lisp_Object bg = Fframe_parameter (frame, Qbackground_color);
@@ -7048,7 +7061,7 @@ Text larger than the specified size is clipped.  */)
 
   tip_f = XFRAME (tip_frame);
   window = FRAME_ROOT_WINDOW (tip_f);
-  tip_buf = Fget_buffer_create (tip);
+  tip_buf = Fget_buffer_create (tip, Qnil);
   /* We will mark the tip window a "pseudo-window" below, and such
      windows cannot have display margins.  */
   bset_left_margin_cols (XBUFFER (tip_buf), make_fixnum (0));
@@ -7794,6 +7807,7 @@ frame_parm_handler x_frame_parm_handlers[] =
   x_set_foreground_color,
   x_set_icon_name,
   x_set_icon_type,
+  x_set_child_frame_border_width,
   x_set_internal_border_width,
   gui_set_right_divider_width,
   gui_set_bottom_divider_width,

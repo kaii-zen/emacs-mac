@@ -72,8 +72,9 @@ enum internal_border_part
 #ifdef NS_IMPL_COCOA
 enum ns_appearance_type
   {
-   ns_appearance_aqua,
-   ns_appearance_vibrant_dark
+    ns_appearance_system_default,
+    ns_appearance_aqua,
+    ns_appearance_vibrant_dark
   };
 #endif
 #endif /* HAVE_WINDOW_SYSTEM */
@@ -540,6 +541,10 @@ struct frame
 
   /* Border width of the frame window as known by the (X) window system.  */
   int border_width;
+
+  /* Width of child frames' internal border.  Acts as
+     internal_border_width for child frames.  */
+  int child_frame_border_width;
 
   /* Width of the internal border.  This is a line of background color
      just inside the window's border.  When the frame is selected,
@@ -1384,6 +1389,7 @@ extern bool frame_inhibit_resize (struct frame *, bool, Lisp_Object);
 extern void adjust_frame_size (struct frame *, int, int, int, bool, Lisp_Object);
 extern void frame_size_history_add (struct frame *f, Lisp_Object fun_symbol,
 				    int width, int height, Lisp_Object rest);
+extern Lisp_Object mouse_position (bool);
 
 extern Lisp_Object Vframe_list;
 
@@ -1454,11 +1460,27 @@ FRAME_TOTAL_FRINGE_WIDTH (struct frame *f)
   return FRAME_LEFT_FRINGE_WIDTH (f) + FRAME_RIGHT_FRINGE_WIDTH (f);
 }
 
-/* Pixel-width of internal border lines.  */
+INLINE int
+FRAME_CHILD_FRAME_BORDER_WIDTH (struct frame *f)
+{
+  return frame_dimension (f->child_frame_border_width);
+}
+
+/* Pixel-width of internal border.  Uses child_frame_border_width for
+   child frames if possible, and falls back on internal_border_width
+   otherwise.  */
 INLINE int
 FRAME_INTERNAL_BORDER_WIDTH (struct frame *f)
 {
+#ifdef HAVE_WINDOW_SYSTEM
+  return FRAME_PARENT_FRAME(f)
+    ? (f->child_frame_border_width
+       ? FRAME_CHILD_FRAME_BORDER_WIDTH(f)
+       : frame_dimension (f->internal_border_width))
+    : frame_dimension (f->internal_border_width);
+#else
   return frame_dimension (f->internal_border_width);
+#endif
 }
 
 /* Pixel-size of window divider lines.  */
@@ -1473,6 +1495,49 @@ FRAME_BOTTOM_DIVIDER_WIDTH (struct frame *f)
 {
   return frame_dimension (f->bottom_divider_width);
 }
+
+/* Return a non-null pointer to the cached face with ID on frame F.  */
+
+INLINE struct face *
+FACE_FROM_ID (struct frame *f, int id)
+{
+  eassert (0 <= id && id < FRAME_FACE_CACHE (f)->used);
+  return FRAME_FACE_CACHE (f)->faces_by_id[id];
+}
+
+/* Return a pointer to the face with ID on frame F, or null if such a
+   face doesn't exist.  */
+
+INLINE struct face *
+FACE_FROM_ID_OR_NULL (struct frame *f, int id)
+{
+  int used = FRAME_FACE_CACHE (f)->used;
+  eassume (0 <= used);
+  return 0 <= id && id < used ? FRAME_FACE_CACHE (f)->faces_by_id[id] : NULL;
+}
+
+#ifdef HAVE_WINDOW_SYSTEM
+
+/* A non-null pointer to the image with id ID on frame F.  */
+
+INLINE struct image *
+IMAGE_FROM_ID (struct frame *f, int id)
+{
+  eassert (0 <= id && id < FRAME_IMAGE_CACHE (f)->used);
+  return FRAME_IMAGE_CACHE (f)->images[id];
+}
+
+/* Value is a pointer to the image with id ID on frame F, or null if
+   no image with that id exists.  */
+
+INLINE struct image *
+IMAGE_OPT_FROM_ID (struct frame *f, int id)
+{
+  int used = FRAME_IMAGE_CACHE (f)->used;
+  eassume (0 <= used);
+  return 0 <= id && id < used ? FRAME_IMAGE_CACHE (f)->images[id] : NULL;
+}
+#endif
 
 /***********************************************************************
 	    Conversion between canonical units and pixels
@@ -1666,7 +1731,7 @@ extern Lisp_Object gui_display_get_resource (Display_Info *,
                                              Lisp_Object component,
                                              Lisp_Object subclass);
 
-extern void set_frame_menubar (struct frame *f, bool first_time, bool deep_p);
+extern void set_frame_menubar (struct frame *f, bool deep_p);
 extern void frame_set_mouse_pixel_position (struct frame *f, int pix_x, int pix_y);
 extern void free_frame_menubar (struct frame *);
 extern bool frame_ancestor_p (struct frame *af, struct frame *df);

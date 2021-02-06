@@ -200,7 +200,7 @@ from; the default is `load-path'."
                                    (cons d f))
                                  (directory-files d nil el-file-regexp))))
          (progress (make-progress-reporter
-                    (byte-compile-info-string "Scanning files for finder")
+                    (byte-compile-info "Scanning files for finder")
                     0 (length files)))
 	 package-override base-name ; processed
 	 summary keywords package version entry desc)
@@ -397,13 +397,6 @@ FILE should be in a form suitable for passing to `locate-library'."
     (erase-buffer)
     (insert str)
     (goto-char (point-min))
-    (delete-blank-lines)
-    (goto-char (point-max))
-    (delete-blank-lines)
-    (goto-char (point-min))
-    (while (re-search-forward "^;+ ?" nil t)
-      (replace-match "" nil nil))
-    (goto-char (point-min))
     (while (re-search-forward "\\<\\([-[:alnum:]]+\\.el\\)\\>" nil t)
       (if (locate-library (match-string 1))
           (make-text-button (match-beginning 1) (match-end 1)
@@ -455,7 +448,7 @@ FILE should be in a form suitable for passing to `locate-library'."
   :syntax-table finder-mode-syntax-table
   (setq buffer-read-only t
 	buffer-undo-list t)
-  (set (make-local-variable 'finder-headmark) nil))
+  (setq-local finder-headmark nil))
 
 (defun finder-summary ()
   "Summarize basic Finder commands."

@@ -131,14 +131,6 @@ groupcontent := feedname | groupdefinition)
 Example: (\"Topmost group\" \"feed1\" (\"subgroup1\" \"feed 2\")
 \"feed3\")")
 
-(defcustom newsticker-groups-filename
-  nil
-  "Name of the newsticker groups settings file."
-  :version "25.1"                       ; changed default value to nil
-  :type '(choice (const nil) string)
-  :group 'newsticker-treeview)
-(make-obsolete-variable 'newsticker-groups-filename 'newsticker-dir "23.1")
-
 ;; ======================================================================
 ;;; internal variables
 ;; ======================================================================
@@ -727,9 +719,8 @@ for the button."
                               (window-width (newsticker--treeview-item-window))
                             fill-column))))
           (if newsticker-use-full-width
-              (set (make-local-variable 'fill-column) wwidth))
-          (set (make-local-variable 'fill-column) (min fill-column
-                                                       wwidth)))
+              (setq-local fill-column wwidth))
+          (setq-local fill-column (min fill-column wwidth)))
         (let ((desc (newsticker--desc item)))
           (insert "\n" (or desc "[No Description]")))
         (set-marker marker1 (1+ (point-min)))
@@ -1265,29 +1256,9 @@ Note: does not update the layout."
 (defun newsticker--treeview-load ()
   "Load treeview settings."
   (let* ((coding-system-for-read 'utf-8)
-         (filename
-          (or (and newsticker-groups-filename
-                   (not (string=
-                         (expand-file-name newsticker-groups-filename)
-                         (expand-file-name (concat newsticker-dir "/groups"))))
-                   (file-exists-p newsticker-groups-filename)
-                   (y-or-n-p
-                    (format-message
-                     (concat "Obsolete variable `newsticker-groups-filename' "
-                             "points to existing file \"%s\".\n"
-                             "Read it? ")
-                     newsticker-groups-filename))
-                   newsticker-groups-filename)
-              (concat newsticker-dir "/groups")))
+         (filename (concat newsticker-dir "/groups"))
          (buf (and (file-exists-p filename)
                    (find-file-noselect filename))))
-    (and newsticker-groups-filename
-         (file-exists-p newsticker-groups-filename)
-	 (y-or-n-p (format-message
-                    (concat "Delete the file \"%s\",\nto which the obsolete "
-                            "variable `newsticker-groups-filename' points ? ")
-                    newsticker-groups-filename))
-	 (delete-file newsticker-groups-filename))
     (when buf
       (set-buffer buf)
       (goto-char (point-min))
@@ -2052,8 +2023,8 @@ Return t if groups have changed, nil otherwise."
   "Major mode for Newsticker Treeview.
 \\{newsticker-treeview-mode-map}"
   (if (boundp 'tool-bar-map)
-      (set (make-local-variable 'tool-bar-map)
-           newsticker-treeview-tool-bar-map))
+      (setq-local tool-bar-map
+                  newsticker-treeview-tool-bar-map))
   (setq buffer-read-only t
         truncate-lines t))
 

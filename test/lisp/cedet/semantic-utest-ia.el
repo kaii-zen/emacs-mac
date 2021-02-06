@@ -1,4 +1,4 @@
-;;; semantic-utest-ia.el --- Analyzer unit tests
+;;; semantic-utest-ia.el --- Analyzer unit tests  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2008-2021 Free Software Foundation, Inc.
 
@@ -86,6 +86,7 @@
     (should-not (semantic-ia-utest tst))))
 
 (ert-deftest semantic-utest-ia-nsp.cpp ()
+  (skip-unless (executable-find "g++"))
   (let ((tst (expand-file-name "testnsp.cpp" semantic-utest-test-directory)))
     (should (file-exists-p tst))
     (should-not (semantic-ia-utest tst))))
@@ -96,6 +97,7 @@
     (should-not (semantic-ia-utest tst))))
 
 (ert-deftest semantic-utest-ia-namespace.cpp ()
+  (skip-unless (executable-find "g++"))
   (let ((tst (expand-file-name "testnsp.cpp" semantic-utest-test-directory)))
     (should (file-exists-p tst))
     (should-not (semantic-ia-utest tst))))
@@ -211,7 +213,7 @@
                ;; completions, then remove the below debug-on-error setting.
                (debug-on-error nil)
 	       (acomp
-		(condition-case err
+		(condition-case _err
 		    (semantic-analyze-possible-completions ctxt)
                   ((error user-error) nil))
                 ))
@@ -438,11 +440,10 @@ tag that contains point, and return that."
   (let* ((ctxt (semantic-analyze-current-context))
 	 (target (car (reverse (oref ctxt prefix))))
 	 (tag (semantic-current-tag))
-	 (start (current-time))
 	 (Lcount 0))
     (when (semantic-tag-p target)
       (semantic-symref-hits-in-region
-       target (lambda (start end prefix) (setq Lcount (1+ Lcount)))
+       target (lambda (_start _end _prefix) (setq Lcount (1+ Lcount)))
        (semantic-tag-start tag)
        (semantic-tag-end tag))
       Lcount)))

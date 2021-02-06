@@ -163,7 +163,7 @@
   "List of suffixes which indicate a file archive.
 It must be supported by libarchive(3).")
 
-;; <http://unix-memo.readthedocs.io/en/latest/vfs.html>
+;; <https://unix-memo.readthedocs.io/en/latest/vfs.html>
 ;;    read and write: tar, cpio, pax , gzip , zip, bzip2, xz, lzip, lzma, ar, mtree, iso9660, compress.
 ;;    read only: 7-Zip, mtree, xar, lha/lzh, rar, microsoft cab.
 
@@ -279,7 +279,9 @@ It must be supported by libarchive(3).")
     (start-file-process . tramp-archive-handle-not-implemented)
     ;; `substitute-in-file-name' performed by default handler.
     (temporary-file-directory . tramp-archive-handle-temporary-file-directory)
-    ;; `tramp-set-file-uid-gid' performed by default handler.
+    (tramp-get-remote-gid . ignore)
+    (tramp-get-remote-uid . ignore)
+    (tramp-set-file-uid-gid . ignore)
     (unhandled-file-name-directory . ignore)
     (vc-registered . ignore)
     (verify-visited-file-modtime . tramp-handle-verify-visited-file-modtime)
@@ -353,7 +355,7 @@ arguments to pass to the OPERATION."
     (add-to-list 'file-name-handler-alist
 	         (cons (tramp-archive-autoload-file-name-regexp)
 		       #'tramp-archive-autoload-file-name-handler))
-    (put 'tramp-archive-autoload-file-name-handler 'safe-magic t))))
+    (put #'tramp-archive-autoload-file-name-handler 'safe-magic t))))
 
 ;;;###autoload
 (progn
@@ -369,7 +371,7 @@ arguments to pass to the OPERATION."
 (tramp-register-archive-file-name-handler)
 
 ;; Mark `operations' the handler is responsible for.
-(put 'tramp-archive-file-name-handler 'operations
+(put #'tramp-archive-file-name-handler 'operations
      (mapcar #'car tramp-archive-file-name-handler-alist))
 
 ;; `tramp-archive-file-name-handler' must be placed before `url-file-handler'.
@@ -520,13 +522,16 @@ offered."
   (declare (debug (form symbolp body))
            (indent 2))
   (let ((bindings
-         (mapcar (lambda (elem)
-                   `(,(if var (intern (format "%s-%s" var elem)) elem)
-                     (,(intern (format "tramp-file-name-%s" elem))
-                      ,(or var 'v))))
-		 `,(cons
-		    'archive
-		    (delete 'hop (tramp-compat-tramp-file-name-slots))))))
+         (mapcar
+	  (lambda (elem)
+            `(,(if var (intern (format "%s-%s" var elem)) elem)
+              (,(intern (format "tramp-file-name-%s" elem))
+               ,(or var 'v))))
+	  (cons
+	   'archive
+	   (delete
+	    'hop
+	    (cdr (mapcar #'car (cl-struct-slot-info 'tramp-file-name))))))))
     `(let* ((,(or var 'v) (tramp-archive-dissect-file-name ,filename))
             ,@bindings)
        ;; We don't know which of those vars will be used, so we bind them all,

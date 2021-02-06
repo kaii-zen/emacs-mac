@@ -140,22 +140,19 @@ specified by `ede-project-directories'."
 (defvar ede-projects nil
   "A list of all active projects currently loaded in Emacs.")
 
-(defvar ede-object-root-project nil
+(defvar-local ede-object-root-project nil
   "The current buffer's current root project.
 If a file is under a project, this specifies the project that is at
 the root of a project tree.")
-(make-variable-buffer-local 'ede-object-root-project)
 
-(defvar ede-object-project nil
+(defvar-local ede-object-project nil
   "The current buffer's current project at that level.
 If a file is under a project, this specifies the project that contains the
 current target.")
-(make-variable-buffer-local 'ede-object-project)
 
-(defvar ede-object nil
+(defvar-local ede-object nil
   "The current buffer's target object.
 This object's class determines how to compile and debug from a buffer.")
-(make-variable-buffer-local 'ede-object)
 
 (defvar ede-selected-object nil
   "The currently user-selected project or target.
@@ -470,7 +467,7 @@ To be used in hook functions."
 	  ;; Emacs 21 has no buffer file name for directory edits.
 	  ;; so we need to add these hacks in.
 	  (eq major-mode 'dired-mode)
-	  (eq major-mode 'vc-dired-mode))
+	  (eq major-mode 'vc-dir-mode))
       (ede-minor-mode 1)))
 
 (define-minor-mode ede-minor-mode
@@ -481,7 +478,7 @@ controlled project, then this mode is activated automatically
 provided `global-ede-mode' is enabled."
   :group 'ede
   (cond ((or (eq major-mode 'dired-mode)
-	     (eq major-mode 'vc-dired-mode))
+	     (eq major-mode 'vc-dir-mode))
 	 (ede-dired-minor-mode (if ede-minor-mode 1 -1)))
 	(ede-minor-mode
 	 (if (not ede-constructing)
@@ -1515,8 +1512,11 @@ It does not apply the value to buffers."
     (when project-dir
       (ede-directory-get-open-project project-dir 'ROOT))))
 
-(cl-defmethod project-roots ((project ede-project))
-  (list (ede-project-root-directory project)))
+(cl-defmethod project-root ((project ede-project))
+  (ede-project-root-directory project))
+
+;;; FIXME: Could someone look into implementing `project-ignores' for
+;;; EDE and/or a faster `project-files'?
 
 (add-hook 'project-find-functions #'project-try-ede)
 
@@ -1527,8 +1527,7 @@ It does not apply the value to buffers."
 
 ;; If this does not occur after the provide, we can get a recursive
 ;; load.  Yuck!
-(if (featurep 'speedbar)
-    (ede-speedbar-file-setup)
-  (add-hook 'speedbar-load-hook 'ede-speedbar-file-setup))
+(with-eval-after-load 'speedbar
+  (ede-speedbar-file-setup))
 
 ;;; ede.el ends here

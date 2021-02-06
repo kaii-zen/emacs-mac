@@ -1,4 +1,4 @@
-;;; burmese.el --- support for Burmese -*- coding: utf-8 -*-
+;;; burmese.el --- support for Burmese -*- coding: utf-8; lexical-binding: t -*-
 
 ;; Copyright (C) 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -23,7 +23,6 @@
 
 ;;; Commentary:
 
-;; Aung San Suu Kyi says to call her country "Burma".
 ;; The murderous generals say to call it "Myanmar".
 ;; We will call it "Burma". -- rms, Chief GNUisance.
 
@@ -52,7 +51,7 @@
 					       regexp t t))))
     regexp))
 
-(let ((elt (list (vector burmese-composable-pattern 0 'font-shape-gstring)
-		 (vector "." 0 'font-shape-gstring))))
+(let ((elt (list (vector burmese-composable-pattern 0 #'font-shape-gstring)
+		 (vector "." 0 #'font-shape-gstring))))
   (set-char-table-range composition-function-table '(#x1000 . #x107F) elt)
   (set-char-table-range composition-function-table '(#xAA60 . #xAA7B) elt))

@@ -344,7 +344,7 @@ to the value obtained by evaluating FORM."
 Each element is a regular expression.  Buffers with a name matched by any of
 these won't be deleted."
   :version "23.3"                       ; added Warnings - bug#6336
-  :type '(repeat string)
+  :type '(repeat regexp)
   :group 'desktop)
 
 ;;;###autoload
@@ -534,7 +534,7 @@ can guess how to load the mode's definition.")
   '((defining-kbd-macro nil)
     (isearch-mode nil)
     (vc-mode nil)
-    (vc-dired-mode nil)
+    (vc-dir-mode nil)
     (erc-track-minor-mode nil)
     (savehist-mode nil))
   "Table mapping minor mode variables to minor mode functions.
@@ -1222,7 +1222,13 @@ This function is a no-op when Emacs is running in batch mode.
 It returns t if a desktop file was loaded, nil otherwise.
 \n(fn DIRNAME)"
   (interactive "i\nP")
-  (unless noninteractive
+  (if (or noninteractive
+          (and (desktop-owner)
+               (= (desktop-owner) (emacs-pid))))
+      (message "Not reloading the desktop%s"
+               (if noninteractive
+                   ""
+                 "; already loaded"))
     (setq desktop-dirname
           (file-name-as-directory
            (expand-file-name

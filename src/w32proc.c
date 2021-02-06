@@ -2007,9 +2007,9 @@ sys_spawnve (int mode, char *cmdname, char **argv, char **envp)
     }
 
   /* we have to do some conjuring here to put argv and envp into the
-     form CreateProcess wants...  argv needs to be a space separated/NUL
-     terminated list of parameters, and envp is a NUL
-     separated/double-NUL terminated list of parameters.
+     form CreateProcess wants...  argv needs to be a space separated/null
+     terminated list of parameters, and envp is a null
+     separated/double-null terminated list of parameters.
 
      Additionally, zero-length args and args containing whitespace or
      quote chars need to be wrapped in double quotes - for this to work,
@@ -3019,9 +3019,9 @@ reset_standard_handles (int in, int out, int err, HANDLE handles[3])
 }
 
 void
-set_process_dir (char * dir)
+set_process_dir (const char * dir)
 {
-  process_dir = dir;
+  process_dir = (char *) dir;
 }
 
 /* To avoid problems with winsock implementations that work over dial-up
@@ -3231,7 +3231,7 @@ such programs cannot be invoked by Emacs anyway.  */)
   char *progname, progname_a[MAX_PATH];
 
   program = Fexpand_file_name (program, Qnil);
-  encoded_progname = ENCODE_FILE (program);
+  encoded_progname = Fcopy_sequence (ENCODE_FILE (program));
   progname = SSDATA (encoded_progname);
   unixtodos_filename (progname);
   filename_to_ansi (progname, progname_a);
@@ -3398,10 +3398,10 @@ If LCID (a 16-bit number) is not a valid locale, the result is nil.  */)
       got_full = GetLocaleInfo (XFIXNUM (lcid),
 				XFIXNUM (longform),
 				full_name, sizeof (full_name));
-      /* GetLocaleInfo's return value includes the terminating NUL
+      /* GetLocaleInfo's return value includes the terminating null
 	 character, when the returned information is a string, whereas
 	 make_unibyte_string needs the string length without the
-	 terminating NUL.  */
+	 terminating null.  */
       if (got_full)
 	return make_unibyte_string (full_name, got_full - 1);
     }

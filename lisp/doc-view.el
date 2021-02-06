@@ -24,8 +24,8 @@
 
 ;; Viewing PS/PDF/DVI files requires Ghostscript, `dvipdf' (comes with
 ;; Ghostscript) or `dvipdfm' (comes with teTeX or TeXLive) and
-;; `pdftotext', which comes with xpdf (http://www.foolabs.com/xpdf/)
-;; or poppler (http://poppler.freedesktop.org/).
+;; `pdftotext', which comes with xpdf (https://www.foolabs.com/xpdf/)
+;; or poppler (https://poppler.freedesktop.org/).
 ;; Djvu documents require `ddjvu' (from DjVuLibre).
 ;; ODF files require `soffice' (from LibreOffice).
 
@@ -439,6 +439,9 @@ Typically \"page-%s.png\".")
     (define-key map (kbd "c m")       'doc-view-set-slice-using-mouse)
     (define-key map (kbd "c b")       'doc-view-set-slice-from-bounding-box)
     (define-key map (kbd "c r")       'doc-view-reset-slice)
+    ;; Centering the image
+    (define-key map (kbd "c h")       'doc-view-center-page-horizontally)
+    (define-key map (kbd "c v")       'doc-view-center-page-vertically)
     ;; Searching
     (define-key map (kbd "C-s")       'doc-view-search)
     (define-key map (kbd "<find>")    'doc-view-search)
@@ -697,8 +700,6 @@ at the top edge of the page moves to the previous page."
       ;; time-window of loose permissions otherwise.
       (with-file-modes #o0700 (make-directory dir))
     (file-already-exists
-     (when (file-symlink-p dir)
-       (error "Danger: %s points to a symbolic link" dir))
      ;; In case it was created earlier with looser rights.
      ;; We could check the mode info returned by file-attributes, but it's
      ;; a pain to parse and it may not tell you what we want under
@@ -708,7 +709,7 @@ at the top edge of the page moves to the previous page."
      ;; sure we have write-access to the directory and that we own it, thus
      ;; closing a bunch of security holes.
      (condition-case error
-	 (set-file-modes dir #o0700)
+	 (set-file-modes dir #o0700 'nofollow)
        (file-error
 	(error
 	 (format "Unable to use temporary directory %s: %s"
@@ -746,8 +747,7 @@ It's a subdirectory of `doc-view-cache-directory'."
 Document types are symbols like `dvi', `ps', `pdf', or `odf' (any
 OpenDocument format)."
   (and (display-graphic-p)
-       (or (image-type-available-p 'imagemagick)
-	   (image-type-available-p 'png))
+       (image-type-available-p 'png)
        (cond
 	((eq type 'dvi)
 	 (and (doc-view-mode-p 'pdf)
@@ -775,10 +775,7 @@ OpenDocument format)."
 (defun doc-view-enlarge (factor)
   "Enlarge the document by FACTOR."
   (interactive (list doc-view-shrink-factor))
-  (if (and doc-view-scale-internally
-           (eq (plist-get (cdr (doc-view-current-image)) :type)
-               'imagemagick))
-      ;; ImageMagick supports on-the-fly-rescaling.
+  (if doc-view-scale-internally
       (let ((new (ceiling (* factor doc-view-image-width))))
         (unless (equal new doc-view-image-width)
           (setq-local doc-view-image-width new)
@@ -798,9 +795,7 @@ OpenDocument format)."
 (defun doc-view-scale-reset ()
   "Reset the document size/zoom level to the initial one."
   (interactive)
-  (if (and doc-view-scale-internally
-           (eq (plist-get (cdr (doc-view-current-image)) :type)
-               'imagemagick))
+  (if doc-view-scale-internally
       (progn
 	(kill-local-variable 'doc-view-image-width)
 	(doc-view-insert-image
@@ -919,19 +914,55 @@ Resize the containing frame if needed."
          (width-diff  (- img-width  win-width))
          (height-diff (- img-height win-height))
          (new-frame-params
+          ;; If we can't resize the window, try and resize the frame.
+          ;; We used to compare the `window-width/height` and the
+          ;; `frame-width/height` instead of catching the errors, but
+          ;; it's too fiddly (e.g. in the presence of the miniwindow,
+          ;; the height the frame should be equal to the height of the
+          ;; root window +1).
           (append
-           (if (= (window-width) (frame-width))
-               `((width  . (text-pixels
-                            . ,(+ (frame-text-width) width-diff))))
-             (enlarge-window (/ width-diff (frame-char-width)) 'horiz)
-             nil)
-           (if (= (window-height) (frame-height))
-               `((height  . (text-pixels
-                             . ,(+ (frame-text-height) height-diff))))
-             (enlarge-window (/ height-diff (frame-char-height)) nil)
-             nil))))
+           (condition-case nil
+               (progn
+                 (enlarge-window (/ width-diff (frame-char-width)) 'horiz)
+                 nil)
+             (error
+              `((width  . (text-pixels
+                           . ,(+ (frame-text-width) width-diff))))))
+           (condition-case nil
+               (progn
+                 (enlarge-window (/ height-diff (frame-char-height)) nil)
+                 nil)
+             (error
+              `((height  . (text-pixels
+                            . ,(+ (frame-text-height) height-diff)))))))))
     (when new-frame-params
       (modify-frame-parameters (selected-frame) new-frame-params))))
+
+(defun doc-view-center-page-horizontally ()
+  "Center page horizontally when page is wider than window."
+  (interactive)
+  (let ((page-width (car (image-size (doc-view-current-image) 'pixel)))
+        (window-width (window-body-width nil 'pixel))
+        ;; How much do we scroll in order to center the page?
+        (pixel-hscroll 0)
+        ;; How many pixels are there in a column?
+        (col-in-pixel (/ (window-body-width nil 'pixel)
+                         (window-body-width nil))))
+    (when (> page-width window-width)
+      (setq pixel-hscroll (/ (- page-width window-width) 2))
+      (set-window-hscroll (selected-window)
+                          (/ pixel-hscroll col-in-pixel)))))
+
+(defun doc-view-center-page-vertically ()
+  "Center page vertically when page is wider than window."
+  (interactive)
+  (let ((page-height (cdr (image-size (doc-view-current-image) 'pixel)))
+        (window-height (window-body-height nil 'pixel))
+        ;; How much do we scroll in order to center the page?
+        (pixel-scroll 0))
+    (when (> page-height window-height)
+      (setq pixel-scroll (/ (- page-height window-height) 2))
+      (set-window-vscroll (selected-window) pixel-scroll 'pixel))))
 
 (defun doc-view-reconvert-doc ()
   "Reconvert the current document.
@@ -1355,26 +1386,31 @@ dragging it to its bottom-right corner.  See also
 
 (defun doc-view-get-bounding-box ()
   "Get the BoundingBox information of the current page."
-  (let* ((page (doc-view-current-page))
-	 (doc (let ((cache-doc (doc-view-current-cache-doc-pdf)))
-		(if (file-exists-p cache-doc)
-		    cache-doc
-		  doc-view--buffer-file-name)))
-	 (o (shell-command-to-string
-	     (concat doc-view-ghostscript-program
-		     " -dSAFER -dBATCH -dNOPAUSE -q -sDEVICE=bbox "
-		     (format "-dFirstPage=%s -dLastPage=%s %s"
-			     page page doc)))))
-    (save-match-data
-      (when (string-match (concat "%%BoundingBox: "
-				  "\\([[:digit:]]+\\) \\([[:digit:]]+\\) "
-				  "\\([[:digit:]]+\\) \\([[:digit:]]+\\)")
-                          o)
-	(mapcar #'string-to-number
-		(list (match-string 1 o)
-		      (match-string 2 o)
-		      (match-string 3 o)
-		      (match-string 4 o)))))))
+  (let ((page (doc-view-current-page))
+	(doc (let ((cache-doc (doc-view-current-cache-doc-pdf)))
+	       (if (file-exists-p cache-doc)
+		   cache-doc
+		 doc-view--buffer-file-name))))
+    (with-temp-buffer
+      (when (eq 0 (ignore-errors
+		    (process-file doc-view-ghostscript-program nil t
+				  nil "-dSAFER" "-dBATCH" "-dNOPAUSE" "-q"
+				  "-sDEVICE=bbox"
+				  (format "-dFirstPage=%s" page)
+				  (format "-dLastPage=%s" page)
+				  doc)))
+	(goto-char (point-min))
+	(save-match-data
+	  (when (re-search-forward
+		 (concat "%%BoundingBox: "
+			 "\\([[:digit:]]+\\) \\([[:digit:]]+\\) "
+			 "\\([[:digit:]]+\\) \\([[:digit:]]+\\)")
+                 nil t)
+	    (mapcar #'string-to-number
+		    (list (match-string 1)
+			  (match-string 2)
+			  (match-string 3)
+			  (match-string 4)))))))))
 
 (defvar doc-view-paper-sizes
   '((a4 595 842)
@@ -1451,12 +1487,11 @@ ARGS is a list of image descriptors."
     ;; Only insert the image if the buffer is visible.
     (when (window-live-p (overlay-get ol 'window))
       (let* ((image (if (and file (file-readable-p file))
-			(if (not (and doc-view-scale-internally
-				      (fboundp 'imagemagick-types)))
+			(if (not doc-view-scale-internally)
 			    (apply #'create-image file doc-view--image-type nil args)
 			  (unless (member :width args)
 			    (setq args `(,@args :width ,doc-view-image-width)))
-			  (apply #'create-image file 'imagemagick nil args))))
+			  (apply #'create-image file doc-view--image-type nil args))))
 	     (slice (doc-view-current-slice))
 	     (img-width (and image (car (image-size image))))
 	     (displayed-img-width (if (and image slice)
@@ -2073,7 +2108,7 @@ See the command `doc-view-mode' for more information on this mode."
   :init-value nil :keymap doc-view-presentation-mode-map
   (if doc-view-presentation-mode
       (progn
-        (set (make-local-variable 'mode-line-format) nil)
+        (setq-local mode-line-format nil)
         (doc-view-fit-page-to-window)
         ;; (doc-view-convert-all-pages)
         )
@@ -2108,8 +2143,8 @@ See the command `doc-view-mode' for more information on this mode."
       (when (memq (selected-frame) (alist-get 'frames attrs))
         (let ((geom (alist-get 'geometry attrs)))
           (when geom
-            (setq monitor-top (nth 0 geom))
-            (setq monitor-left (nth 1 geom))
+            (setq monitor-left (nth 0 geom))
+            (setq monitor-top (nth 1 geom))
             (setq monitor-width (nth 2 geom))
             (setq monitor-height (nth 3 geom))))))
     (let ((frame (make-frame

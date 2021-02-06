@@ -46,11 +46,7 @@
 (defun semantic-string-lessp-ci (s1 s2)
   "Case insensitive version of `string-lessp'.
 Argument S1 and S2 are the strings to compare."
-  ;; Use downcase instead of upcase because an average name
-  ;; has more lower case characters.
-  (if (fboundp 'compare-strings)
-      (eq (compare-strings s1 0 nil s2 0 nil t) -1)
-    (string-lessp (downcase s1) (downcase s2))))
+  (eq (compare-strings s1 0 nil s2 0 nil t) -1))
 
 (defun semantic-sort-tag-type (tag)
   "Return a type string for TAG guaranteed to be a string."
@@ -314,11 +310,10 @@ may re-organize the list with side-effects."
 ;; external members, and bring them together in a cloned copy of the
 ;; class tag.
 ;;
-(defvar semantic-orphaned-member-metaparent-type "class"
+(defvar-local semantic-orphaned-member-metaparent-type "class"
   "In `semantic-adopt-external-members', the type of 'type for metaparents.
 A metaparent is a made-up type semantic token used to hold the child list
 of orphaned members of a named type.")
-(make-variable-buffer-local 'semantic-orphaned-member-metaparent-type)
 
 (defvar semantic-mark-external-member-function nil
   "Function called when an externally defined orphan is found.

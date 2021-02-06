@@ -5,7 +5,7 @@
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;;         Felix E. Klee <felix.klee@inka.de>
 ;; Keywords: image
-;; Version: 1.0
+;; Version: 1.1
 ;; Package-Requires: ((emacs "25"))
 
 ;; This file is part of GNU Emacs.
@@ -182,6 +182,19 @@ otherwise.  IMAGE-TYPE should be a MIME image type, like
    (dom-node
     'image
     `((xlink:href . ,(svg--image-data image image-type datap))
+      ,@(svg--arguments svg args)))))
+
+(defun svg-embed-base-uri-image (svg relative-filename &rest args)
+  "Insert image placed at RELATIVE-FILENAME into the SVG structure.
+RELATIVE-FILENAME will be searched in `file-name-directory' of the
+image's `:base-uri' property.  If `:base-uri' is not specified for the
+image, then embedding won't work. Embedding large images using this
+function is much faster than `svg-embed'."
+  (svg--append
+   svg
+   (dom-node
+    'image
+    `((xlink:href . ,relative-filename)
       ,@(svg--arguments svg args)))))
 
 (defun svg-text (svg text &rest args)

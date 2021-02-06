@@ -272,7 +272,7 @@ of a face name is the same for all frames."
 (defun face-equal (face1 face2 &optional frame)
   "Non-nil if faces FACE1 and FACE2 are equal.
 Faces are considered equal if all their attributes are equal.
-If the optional argument FRAME is given, report on FACE1 and FACE2 in that frame.
+If optional argument FRAME is given, report on FACE1 and FACE2 in that frame.
 If FRAME is t, report on the defaults for FACE1 and FACE2 (for new frames).
 If FRAME is omitted or nil, use the selected frame."
   (internal-lisp-face-equal-p face1 face2 frame))
@@ -484,7 +484,7 @@ FACES may be either a single face or a list of faces.
 
 
 (defmacro face-attribute-specified-or (value &rest body)
-  "Return VALUE, unless it's `unspecified', in which case evaluate BODY and return the result."
+  "Return VALUE or, if it's `unspecified', the result of evaluating BODY."
   (let ((temp (make-symbol "value")))
     `(let ((,temp ,value))
        (if (not (eq ,temp 'unspecified))
@@ -1212,10 +1212,7 @@ Value is the new attribute value."
   (setq name (concat (upcase (substring name 0 1)) (substring name 1)))
   (let* ((completion-ignore-case t)
 	 (value (completing-read
-                 (format-message (if default
-                                     "%s for face `%s' (default %s): "
-                                   "%s for face `%s': ")
-                                 name face default)
+                 (format-prompt "%s for face `%s'" default name face)
 		 completion-alist nil nil nil nil default)))
     (if (equal value "") default value)))
 
@@ -1560,7 +1557,7 @@ is given, in which case return its value instead."
     ;; return it to the caller. Since there will most definitely be something to
     ;; return in this case, there's no need to know/check if a match was found.
     (if defaults
-	(append result defaults)
+	(append defaults result)
       (if match-found
 	  result
 	no-match-retval))))
@@ -1785,16 +1782,42 @@ with the color they represent as background color."
    (defined-colors frame)))
 
 (defun readable-foreground-color (color)
-  "Return a readable foreground color for background COLOR."
-  (let* ((rgb   (color-values color))
-	 (max   (apply #'max rgb))
-	 (black (car (color-values "black")))
-	 (white (car (color-values "white"))))
-    ;; Select black or white depending on which one is less similar to
-    ;; the brightest component.
-    (if (> (abs (- max black)) (abs (- max white)))
-	"black"
-      "white")))
+  "Return a readable foreground color for background COLOR.
+The returned value is a string representing black or white, depending
+on which one provides better contrast with COLOR."
+  ;; We use #ffffff instead of "white", because the latter is sometimes
+  ;; less than white.  That way, we get the best contrast possible.
+  (if (color-dark-p (mapcar (lambda (c) (/ c 65535.0))
+                            (color-values color)))
+      "#ffffff" "black"))
+
+(defconst color-luminance-dark-limit 0.325
+  "The relative luminance below which a color is considered 'dark'.
+A 'dark' color in this sense provides better contrast with white
+than with black; see `color-dark-p'.
+This value was determined experimentally.")
+
+(defun color-dark-p (rgb)
+  "Whether RGB is more readable against white than black.
+RGB is a 3-element list (R G B), each component in the range [0,1].
+This predicate can be used both for determining a suitable (black or white)
+contrast colour with RGB as background and as foreground."
+  (unless (<= 0 (apply #'min rgb) (apply #'max rgb) 1)
+    (error "RGB components %S not in [0,1]" rgb))
+  ;; Compute the relative luminance after gamma-correcting (assuming sRGB),
+  ;; and compare to a cut-off value determined experimentally.
+  ;; See https://en.wikipedia.org/wiki/Relative_luminance for details.
+  (let* ((sr (nth 0 rgb))
+         (sg (nth 1 rgb))
+         (sb (nth 2 rgb))
+         ;; Gamma-correct the RGB components to linear values.
+         ;; Use the power 2.2 as an approximation to sRGB gamma;
+         ;; it should be good enough for the purpose of this function.
+         (r (expt sr 2.2))
+         (g (expt sg 2.2))
+         (b (expt sb 2.2))
+         (y (+ (* r 0.2126) (* g 0.7152) (* b 0.0722))))
+    (< y color-luminance-dark-limit)))
 
 (declare-function xw-color-defined-p "xfns.c" (color &optional frame))
 
@@ -1822,7 +1845,7 @@ COLOR should be a string naming a color (e.g. \"white\"), or a
 string specifying a color's RGB components (e.g. \"#ff12ec\").
 
 Return a list of three integers, (RED GREEN BLUE), each between 0
-and either 65280 or 65535 (the maximum depends on the system).
+and 65535 inclusive.
 Use `color-name-to-rgb' if you want RGB floating-point values
 normalized to 1.0.
 
@@ -2176,7 +2199,7 @@ the above example."
 		(not (funcall pred type)))
       ;; Strip off last hyphen and what follows, then try again
       (setq type
-	    (if (setq hyphend (string-match-p "[-_][^-_]+$" type))
+	    (if (setq hyphend (string-match-p "[-_.][^-_.]+$" type))
 		(substring type 0 hyphend)
 	      nil))))
   type)
@@ -2555,7 +2578,7 @@ non-nil."
   :group 'basic-faces)
 
 (defface mode-line-highlight
-  '((((class color) (min-colors 88))
+  '((((supports :box t) (class color) (min-colors 88))
      :box (:line-width 2 :color "grey40" :style released-button))
     (t
      :inherit highlight))
@@ -2614,9 +2637,9 @@ Use the face `mode-line-highlight' for features that can be selected."
   :version "21.1"
   :group 'basic-faces)
 
-(defface header-line-highlight '((t :inherit highlight))
+(defface header-line-highlight '((t :inherit mode-line-highlight))
   "Basic header line face for highlighting."
-  :version "26.1"
+  :version "28.1"
   :group 'basic-faces)
 
 (defface vertical-border
@@ -2660,8 +2683,17 @@ the same as `window-divider' face."
 
 (defface internal-border
     '((t nil))
-  "Basic face for the internal border."
+  "Basic face for the internal border.
+For the internal border of child frames see `child-frame-border'."
   :version "26.1"
+  :group 'frames
+  :group 'basic-faces)
+
+(defface child-frame-border
+  '((t nil))
+  "Basic face for the internal border of child frames.
+For the internal border of non-child frames see `internal-border'."
+  :version "28.1"
   :group 'frames
   :group 'basic-faces)
 
@@ -2693,9 +2725,11 @@ used to display the prompt text."
   :group 'frames
   :group 'basic-faces)
 
-(defface scroll-bar '((t nil))
+(defface scroll-bar
+  '((((background light)) :foreground "black")
+    (((background dark))  :foreground "white"))
   "Basic face for the scroll bar colors under X."
-  :version "21.1"
+  :version "28.1"
   :group 'frames
   :group 'basic-faces)
 

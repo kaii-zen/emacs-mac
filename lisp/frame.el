@@ -713,6 +713,18 @@ The optional argument PARAMETERS specifies additional frame parameters."
                       (x-display-list))))
   (make-frame (cons (cons 'display display) parameters)))
 
+(defun make-frame-on-current-monitor (&optional parameters)
+  "Make a frame on the currently selected monitor.
+Like `make-frame-on-monitor' and with the same PARAMETERS as in `make-frame'."
+  (interactive)
+  (let* ((monitor-workarea
+          (cdr (assq 'workarea (frame-monitor-attributes))))
+         (geometry-parameters
+          (when monitor-workarea
+            `((top . ,(nth 1 monitor-workarea))
+              (left . ,(nth 0 monitor-workarea))))))
+    (make-frame (append geometry-parameters parameters))))
+
 (defun make-frame-on-monitor (monitor &optional display parameters)
   "Make a frame on monitor MONITOR.
 The optional argument DISPLAY can be a display name, and the optional
@@ -721,7 +733,7 @@ argument PARAMETERS specifies additional frame parameters."
    (list
     (let* ((default (cdr (assq 'name (frame-monitor-attributes)))))
       (completing-read
-       (format "Make frame on monitor (default %s): " default)
+       (format-prompt "Make frame on monitor" default)
        (or (delq nil (mapcar (lambda (a)
                                (cdr (assq 'name a)))
                              (display-monitor-attributes-list)))
@@ -748,7 +760,7 @@ If DISPLAY is nil, that stands for the selected frame's display."
    (list
     (let* ((default (frame-parameter nil 'display))
            (display (completing-read
-                     (format "Close display (default %s): " default)
+                     (format-prompt "Close display" default)
                      (delete-dups
                       (mapcar (lambda (frame)
                                 (frame-parameter frame 'display))
@@ -1058,6 +1070,23 @@ that variable should be nil."
       (setq arg (1+ arg)))
     (select-frame-set-input-focus frame)))
 
+(defun other-frame-prefix ()
+  "Display the buffer of the next command in a new frame.
+The next buffer is the buffer displayed by the next command invoked
+immediately after this command (ignoring reading from the minibuffer).
+Creates a new frame before displaying the buffer.
+When `switch-to-buffer-obey-display-actions' is non-nil,
+`switch-to-buffer' commands are also supported."
+  (interactive)
+  (display-buffer-override-next-command
+   (lambda (buffer alist)
+     (cons (display-buffer-pop-up-frame
+            buffer (append '((inhibit-same-window . t))
+                           alist))
+           'frame))
+   nil "[other-frame]")
+  (message "Display next command buffer in a new frame..."))
+
 (defun iconify-or-deiconify-frame ()
   "Iconify the selected frame, or deiconify if it's currently an icon."
   (interactive)
@@ -1101,7 +1130,7 @@ If there is no frame by that name, signal an error."
    (let* ((frame-names-alist (make-frame-names-alist))
 	   (default (car (car frame-names-alist)))
 	   (input (completing-read
-		   (format "Select Frame (default %s): " default)
+		   (format-prompt "Select Frame" default)
 		   frame-names-alist nil t nil 'frame-name-history)))
      (if (= (length input) 0)
 	 (list default)
@@ -1215,13 +1244,10 @@ face specs for the new background mode."
                          ;; during startup with -rv on the command
                          ;; line for the initial frame, because frames
                          ;; are not recorded in the pdump file.
-                         (assq face (frame-face-alist))
+                         (assq face (frame-face-alist frame))
                          (face-spec-match-p face
                                             (face-user-default-spec face)
-                                            ;; FIXME: why selected-frame and
-                                            ;; not the frame that is the
-                                            ;; argument to this function?
-                                            (selected-frame))))
+                                            frame)))
 		   (push face locally-modified-faces)))
 	    ;; Now change to the new frame parameters
 	    (modify-frame-parameters frame params)
@@ -1344,6 +1370,7 @@ FRAME defaults to the selected frame."
 FRAME defaults to the selected frame."
   (setq frame (window-normalize-frame frame))
   (- (frame-native-height frame)
+     (tab-bar-height frame t)
      (* 2 (frame-internal-border-width frame))))
 
 (defun frame-outer-width (&optional frame)
@@ -1383,12 +1410,12 @@ as though the font-related attributes of the `default' face had been
 \"set in this session\", so that the font is applied to future frames."
   (interactive
    (let* ((completion-ignore-case t)
-	  (font (completing-read "Font name: "
+          (default (frame-parameter nil 'font))
+	  (font (completing-read (format-prompt "Font name" default)
 				 ;; x-list-fonts will fail with an error
 				 ;; if this frame doesn't support fonts.
 				 (x-list-fonts "*" nil (selected-frame))
-                                 nil nil nil nil
-                                 (frame-parameter nil 'font))))
+                                 nil nil nil nil default)))
      (list font current-prefix-arg nil)))
   (when (or (stringp font) (fontp font))
     (let* ((this-frame (selected-frame))
@@ -1552,8 +1579,9 @@ When called interactively, prompt for the name of the frame.
 On text terminals, the frame name is displayed on the mode line.
 On graphical displays, it is displayed on the frame's title bar."
   (interactive
-   (list (read-string "Frame name: " nil nil
-                      (cdr (assq 'name (frame-parameters))))))
+   (let ((default (cdr (assq 'name (frame-parameters)))))
+     (list (read-string (format-prompt "Frame name" default) nil nil
+                        default))))
   (modify-frame-parameters (selected-frame)
 			   (list (cons 'name name))))
 
@@ -1925,7 +1953,7 @@ for FRAME."
 ;; features change, it will be easy to find all the tests for such
 ;; capabilities by a simple text search.  See more about the history
 ;; and the intent of these functions in
-;; http://lists.gnu.org/archive/html/bug-gnu-emacs/2019-04/msg00004.html
+;; https://lists.gnu.org/archive/html/bug-gnu-emacs/2019-04/msg00004.html
 ;; or in https://debbugs.gnu.org/cgi/bugreport.cgi?bug=35058#17.
 
 (declare-function msdos-mouse-p "dosfns.c")
@@ -2547,13 +2575,15 @@ Use 0 or negative value to blink forever."
 This starts the timer `blink-cursor-timer', which makes the cursor blink
 if appropriate.  It also arranges to cancel that timer when the next
 command starts, by installing a pre-command hook."
-  (when (null blink-cursor-timer)
+  (cond
+   ((null blink-cursor-mode) (blink-cursor-mode -1))
+   ((null blink-cursor-timer)
     ;; Set up the timer first, so that if this signals an error,
     ;; blink-cursor-end is not added to pre-command-hook.
     (setq blink-cursor-blinks-done 1)
     (blink-cursor--start-timer)
-    (add-hook 'pre-command-hook 'blink-cursor-end)
-    (internal-show-cursor nil nil)))
+    (add-hook 'pre-command-hook #'blink-cursor-end)
+    (internal-show-cursor nil nil))))
 
 (defun blink-cursor-timer-function ()
   "Timer function of timer `blink-cursor-timer'."
@@ -2567,14 +2597,14 @@ command starts, by installing a pre-command hook."
   (when (and (> blink-cursor-blinks 0)
              (<= (* 2 blink-cursor-blinks) blink-cursor-blinks-done))
     (blink-cursor-suspend)
-    (add-hook 'post-command-hook 'blink-cursor-check)))
+    (add-hook 'post-command-hook #'blink-cursor-check)))
 
 (defun blink-cursor-end ()
   "Stop cursor blinking.
 This is installed as a pre-command hook by `blink-cursor-start'.
 When run, it cancels the timer `blink-cursor-timer' and removes
 itself as a pre-command hook."
-  (remove-hook 'pre-command-hook 'blink-cursor-end)
+  (remove-hook 'pre-command-hook #'blink-cursor-end)
   (internal-show-cursor nil t)
   (when blink-cursor-timer
     (cancel-timer blink-cursor-timer)
@@ -2610,7 +2640,7 @@ stopped by `blink-cursor-suspend'.  Internally calls
 `blink-cursor--should-blink' and returns its result."
   (let ((should-blink (blink-cursor--should-blink)))
     (when (and should-blink (not blink-cursor-idle-timer))
-      (remove-hook 'post-command-hook 'blink-cursor-check)
+      (remove-hook 'post-command-hook #'blink-cursor-check)
       (blink-cursor--start-idle-timer))
     should-blink))
 
@@ -2632,18 +2662,18 @@ This command is effective only on graphical frames.  On text-only
 terminals, cursor blinking is controlled by the terminal."
   :init-value (not (or noninteractive
 		       no-blinking-cursor
-		       (eq system-type 'ms-dos)
-		       (not (display-blink-cursor-p))))
-  :initialize 'custom-initialize-delay
+		       (eq system-type 'ms-dos)))
+  :initialize #'custom-initialize-delay
   :group 'cursor
   :global t
   (blink-cursor-suspend)
   (remove-hook 'after-delete-frame-functions #'blink-cursor--rescan-frames)
   (remove-function after-focus-change-function #'blink-cursor--rescan-frames)
   (when blink-cursor-mode
-    (add-function :after after-focus-change-function #'blink-cursor--rescan-frames)
+    (add-function :after after-focus-change-function
+                  #'blink-cursor--rescan-frames)
     (add-hook 'after-delete-frame-functions #'blink-cursor--rescan-frames)
-    (blink-cursor--start-idle-timer)))
+    (blink-cursor-check)))
 
 
 ;; Frame maximization/fullscreen
@@ -2698,11 +2728,7 @@ See also `toggle-frame-maximized'."
 	      (set-frame-parameter frame 'fullscreen fullscreen-restore)
 	    (set-frame-parameter frame 'fullscreen nil)))
       (modify-frame-parameters
-       frame `((fullscreen . fullboth) (fullscreen-restore . ,fullscreen))))
-    ;; Manipulating a frame without waiting for the fullscreen
-    ;; animation to complete can cause a crash, or other unexpected
-    ;; behavior, on macOS (bug#28496).
-    (when (featurep 'cocoa) (sleep-for 0.5))))
+       frame `((fullscreen . fullboth) (fullscreen-restore . ,fullscreen))))))
 
 
 ;;;; Key bindings
@@ -2711,6 +2737,7 @@ See also `toggle-frame-maximized'."
 (define-key ctl-x-5-map "1" 'delete-other-frames)
 (define-key ctl-x-5-map "0" 'delete-frame)
 (define-key ctl-x-5-map "o" 'other-frame)
+(define-key ctl-x-5-map "5" 'other-frame-prefix)
 (define-key global-map [f11] 'toggle-frame-fullscreen)
 (define-key global-map [(meta f10)] 'toggle-frame-maximized)
 (define-key esc-map    [f10]        'toggle-frame-maximized)

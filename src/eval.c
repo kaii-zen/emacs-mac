@@ -544,7 +544,10 @@ usage: (quote ARG)  */)
 DEFUN ("function", Ffunction, Sfunction, 1, UNEVALLED, 0,
        doc: /* Like `quote', but preferred for objects which are functions.
 In byte compilation, `function' causes its argument to be handled by
-the byte compiler.  `quote' cannot do that.
+the byte compiler.  Similarly, when expanding macros and expressions,
+ARG can be examined and possibly expanded.  If `quote' is used
+instead, this doesn't happen.
+
 usage: (function ARG)  */)
   (Lisp_Object args)
 {
@@ -678,6 +681,10 @@ default_toplevel_binding (Lisp_Object symbol)
 	case SPECPDL_UNWIND_EXCURSION:
 	case SPECPDL_UNWIND_VOID:
 	case SPECPDL_BACKTRACE:
+#ifdef HAVE_MODULES
+        case SPECPDL_MODULE_RUNTIME:
+        case SPECPDL_MODULE_ENVIRONMENT:
+#endif
 	case SPECPDL_LET_LOCAL:
 	  break;
 
@@ -686,6 +693,49 @@ default_toplevel_binding (Lisp_Object symbol)
 	}
     }
   return binding;
+}
+
+/* Look for a lexical-binding of SYMBOL somewhere up the stack.
+   This will only find bindings created with interpreted code, since once
+   compiled names of lexical variables are basically gone anyway.  */
+static bool
+lexbound_p (Lisp_Object symbol)
+{
+  union specbinding *pdl = specpdl_ptr;
+  while (pdl > specpdl)
+    {
+      switch ((--pdl)->kind)
+	{
+	case SPECPDL_LET_DEFAULT:
+	case SPECPDL_LET:
+	  if (EQ (specpdl_symbol (pdl), Qinternal_interpreter_environment))
+	    {
+	      Lisp_Object env = specpdl_old_value (pdl);
+	      if (CONSP (env) && !NILP (Fassq (symbol, env)))
+	        return true;
+	    }
+	  break;
+
+	case SPECPDL_UNWIND:
+	case SPECPDL_UNWIND_ARRAY:
+	case SPECPDL_UNWIND_PTR:
+	case SPECPDL_UNWIND_INT:
+	case SPECPDL_UNWIND_INTMAX:
+	case SPECPDL_UNWIND_EXCURSION:
+	case SPECPDL_UNWIND_VOID:
+	case SPECPDL_BACKTRACE:
+#ifdef HAVE_MODULES
+        case SPECPDL_MODULE_RUNTIME:
+        case SPECPDL_MODULE_ENVIRONMENT:
+#endif
+	case SPECPDL_LET_LOCAL:
+	  break;
+
+	default:
+	  emacs_abort ();
+	}
+    }
+  return false;
 }
 
 DEFUN ("default-toplevel-value", Fdefault_toplevel_value, Sdefault_toplevel_value, 1, 1, 0,
@@ -723,6 +773,15 @@ This is like `defvar' and `defconst' but without affecting the variable's
 value.  */)
   (Lisp_Object symbol, Lisp_Object doc)
 {
+  if (!XSYMBOL (symbol)->u.s.declared_special
+      && lexbound_p (symbol))
+    /* This test tries to catch the situation where we do
+       (let ((<foo-var> ...)) ...(<foo-function> ...)....)
+       and where the `foo` package only gets loaded when <foo-function>
+       is called, so the outer `let` incorrectly made the binding lexical
+       because the <foo-var> wasn't yet declared as dynamic at that point.  */
+    error ("Defining as dynamic an already lexical var");
+
   XSYMBOL (symbol)->u.s.declared_special = true;
   if (!NILP (doc))
     {
@@ -759,6 +818,8 @@ The optional argument DOCSTRING is a documentation string for the
 variable.
 
 To define a user option, use `defcustom' instead of `defvar'.
+
+To define a buffer-local variable, use `defvar-local'.
 usage: (defvar SYMBOL &optional INITVALUE DOCSTRING)  */)
   (Lisp_Object args)
 {
@@ -1108,8 +1169,17 @@ Lisp_Object
 internal_catch (Lisp_Object tag,
 		Lisp_Object (*func) (Lisp_Object), Lisp_Object arg)
 {
+  /* MINIBUFFER_QUIT_LEVEL is to handle quitting from nested minibuffers by
+     throwing t to tag `exit'.
+     Value -1 means there is no (throw 'exit t) in progress;
+     0 means the `throw' wasn't done from an active minibuffer;
+     N > 0 means the `throw' was done from the minibuffer at level N.  */
+  static EMACS_INT minibuffer_quit_level = -1;
   /* This structure is made part of the chain `catchlist'.  */
   struct handler *c = push_handler (tag, CATCHER);
+
+  if (EQ (tag, Qexit))
+    minibuffer_quit_level = -1;
 
   /* Call FUNC.  */
   if (! sys_setjmp (c->jmp))
@@ -1124,6 +1194,23 @@ internal_catch (Lisp_Object tag,
       Lisp_Object val = handlerlist->val;
       clobbered_eassert (handlerlist == c);
       handlerlist = handlerlist->next;
+      if (EQ (tag, Qexit) && EQ (val, Qt))
+	/* If we've thrown t to tag `exit' from within a minibuffer, we
+	   exit all minibuffers more deeply nested than the current
+	   one.  */
+	{
+	  EMACS_INT mini_depth = this_minibuffer_depth (Qnil);
+	  if (mini_depth && mini_depth != minibuffer_quit_level)
+	    {
+	      if (minibuffer_quit_level == -1)
+		minibuffer_quit_level = mini_depth;
+	      if (minibuffer_quit_level
+		  && (minibuf_level > minibuffer_quit_level))
+		Fthrow (Qexit, Qt);
+	    }
+	  else
+	    minibuffer_quit_level = -1;
+	}
       return val;
     }
 }
@@ -1656,6 +1743,7 @@ signal_or_quit (Lisp_Object error_symbol, Lisp_Object data, bool keyboard_quit)
 	break;
     }
 
+  bool debugger_called = false;
   if (/* Don't run the debugger for a memory-full error.
 	 (There is no room in memory to do that!)  */
       !NILP (error_symbol)
@@ -1669,12 +1757,29 @@ signal_or_quit (Lisp_Object error_symbol, Lisp_Object data, bool keyboard_quit)
 	     if requested".  */
 	  || EQ (h->tag_or_ch, Qerror)))
     {
-      bool debugger_called
+      debugger_called
 	= maybe_call_debugger (conditions, error_symbol, data);
       /* We can't return values to code which signaled an error, but we
 	 can continue code which has signaled a quit.  */
       if (keyboard_quit && debugger_called && EQ (real_error_symbol, Qquit))
 	return Qnil;
+    }
+
+  /* If we're in batch mode, print a backtrace unconditionally to help
+     with debugging.  Make sure to use `debug' unconditionally to not
+     interfere with ERT or other packages that install custom
+     debuggers.  Don't try to call the debugger while dumping or
+     bootstrapping, it wouldn't work anyway.  */
+  if (!debugger_called && !NILP (error_symbol)
+      && (NILP (clause) || EQ (h->tag_or_ch, Qerror))
+      && noninteractive && backtrace_on_error_noninteractive
+      && !will_dump_p () && !will_bootstrap_p ()
+      && NILP (Vinhibit_debugger))
+    {
+      ptrdiff_t count = SPECPDL_INDEX ();
+      specbind (Vdebugger, Qdebug);
+      call_debugger (list2 (Qerror, Fcons (error_symbol, data)));
+      unbind_to (count, Qnil);
     }
 
   if (!NILP (clause))
@@ -1953,6 +2058,15 @@ then strings and vectors are not accepted.  */)
      where the interactive spec is stored.  */
   else if (COMPILEDP (fun))
     return (PVSIZE (fun) > COMPILED_INTERACTIVE ? Qt : if_prop);
+
+#ifdef HAVE_MODULES
+  /* Module functions are interactive if their `interactive_form'
+     field is non-nil. */
+  else if (MODULE_FUNCTIONP (fun))
+    return NILP (module_function_interactive_form (XMODULE_FUNCTION (fun)))
+             ? if_prop
+             : Qt;
+#endif
 
   /* Strings and vectors are keyboard macros.  */
   if (STRINGP (fun) || VECTORP (fun))
@@ -2368,6 +2482,8 @@ eval_sub (Lisp_Object form)
 DEFUN ("apply", Fapply, Sapply, 1, MANY, 0,
        doc: /* Call FUNCTION with our remaining args, using our last arg as list of args.
 Then return the value FUNCTION returns.
+With a single argument, call the argument's first element using the
+other elements as args.
 Thus, (apply \\='+ 1 2 \\='(3 4)) returns 10.
 usage: (apply FUNCTION &rest ARGUMENTS)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
@@ -2381,7 +2497,7 @@ usage: (apply FUNCTION &rest ARGUMENTS)  */)
   ptrdiff_t numargs = list_length (spread_arg);
 
   if (numargs == 0)
-    return Ffuncall (nargs - 1, args);
+    return Ffuncall (max (1, nargs - 1), args);
   else if (numargs == 1)
     {
       args [nargs - 1] = XCAR (spread_arg);
@@ -2939,6 +3055,20 @@ funcall_subr (struct Lisp_Subr *subr, ptrdiff_t numargs, Lisp_Object *args)
   return result;
 }
 #endif
+/* Call the compiled Lisp function FUN.  If we have not yet read FUN's
+   bytecode string and constants vector, fetch them from the file first.  */
+
+static Lisp_Object
+fetch_and_exec_byte_code (Lisp_Object fun, Lisp_Object syms_left,
+			  ptrdiff_t nargs, Lisp_Object *args)
+{
+  if (CONSP (AREF (fun, COMPILED_BYTECODE)))
+    Ffetch_bytecode (fun);
+  return exec_byte_code (AREF (fun, COMPILED_BYTECODE),
+			 AREF (fun, COMPILED_CONSTANTS),
+			 AREF (fun, COMPILED_STACK_DEPTH),
+			 syms_left, nargs, args);
+}
 
 static Lisp_Object
 apply_lambda (Lisp_Object fun, Lisp_Object args, ptrdiff_t count)
@@ -3004,9 +3134,6 @@ funcall_lambda (Lisp_Object fun, ptrdiff_t nargs,
     }
   else if (COMPILEDP (fun))
     {
-      ptrdiff_t size = PVSIZE (fun);
-      if (size <= COMPILED_STACK_DEPTH)
-	xsignal1 (Qinvalid_function, fun);
       syms_left = AREF (fun, COMPILED_ARGLIST);
       if (FIXNUMP (syms_left))
 	/* A byte-code object with an integer args template means we
@@ -3018,15 +3145,7 @@ funcall_lambda (Lisp_Object fun, ptrdiff_t nargs,
 	   argument-binding code below instead (as do all interpreted
 	   functions, even lexically bound ones).  */
 	{
-	  /* If we have not actually read the bytecode string
-	     and constants vector yet, fetch them from the file.  */
-	  if (CONSP (AREF (fun, COMPILED_BYTECODE)))
-	    Ffetch_bytecode (fun);
-	  return exec_byte_code (AREF (fun, COMPILED_BYTECODE),
-				 AREF (fun, COMPILED_CONSTANTS),
-				 AREF (fun, COMPILED_STACK_DEPTH),
-				 syms_left,
-				 nargs, arg_vector);
+	  return fetch_and_exec_byte_code (fun, syms_left, nargs, arg_vector);
 	}
       lexenv = Qnil;
     }
@@ -3095,16 +3214,7 @@ funcall_lambda (Lisp_Object fun, ptrdiff_t nargs,
   if (CONSP (fun))
     val = Fprogn (XCDR (XCDR (fun)));
   else
-    {
-      /* If we have not actually read the bytecode string
-	 and constants vector yet, fetch them from the file.  */
-      if (CONSP (AREF (fun, COMPILED_BYTECODE)))
-	Ffetch_bytecode (fun);
-      val = exec_byte_code (AREF (fun, COMPILED_BYTECODE),
-			    AREF (fun, COMPILED_CONSTANTS),
-			    AREF (fun, COMPILED_STACK_DEPTH),
-			    Qnil, 0, 0);
-    }
+    val = fetch_and_exec_byte_code (fun, Qnil, 0, NULL);
 
   return unbind_to (count, val);
 }
@@ -3189,9 +3299,6 @@ lambda_arity (Lisp_Object fun)
     }
   else if (COMPILEDP (fun))
     {
-      ptrdiff_t size = PVSIZE (fun);
-      if (size <= COMPILED_STACK_DEPTH)
-	xsignal1 (Qinvalid_function, fun);
       syms_left = AREF (fun, COMPILED_ARGLIST);
       if (FIXNUMP (syms_left))
         return get_byte_code_arity (syms_left);
@@ -3234,13 +3341,11 @@ DEFUN ("fetch-bytecode", Ffetch_bytecode, Sfetch_bytecode,
 
   if (COMPILEDP (object))
     {
-      ptrdiff_t size = PVSIZE (object);
-      if (size <= COMPILED_STACK_DEPTH)
-	xsignal1 (Qinvalid_function, object);
       if (CONSP (AREF (object, COMPILED_BYTECODE)))
 	{
 	  tem = read_doc_string (AREF (object, COMPILED_BYTECODE));
-	  if (!CONSP (tem))
+	  if (! (CONSP (tem) && STRINGP (XCAR (tem))
+		 && VECTORP (XCDR (tem))))
 	    {
 	      tem = AREF (object, COMPILED_BYTECODE);
 	      if (CONSP (tem) && STRINGP (XCAR (tem)))
@@ -3248,7 +3353,19 @@ DEFUN ("fetch-bytecode", Ffetch_bytecode, Sfetch_bytecode,
 	      else
 		error ("Invalid byte code");
 	    }
-	  ASET (object, COMPILED_BYTECODE, XCAR (tem));
+
+	  Lisp_Object bytecode = XCAR (tem);
+	  if (STRING_MULTIBYTE (bytecode))
+	    {
+	      /* BYTECODE must have been produced by Emacs 20.2 or earlier
+		 because it produced a raw 8-bit string for byte-code and now
+		 such a byte-code string is loaded as multibyte with raw 8-bit
+		 characters converted to multibyte form.  Convert them back to
+		 the original unibyte form.  */
+	      bytecode = Fstring_as_unibyte (bytecode);
+	    }
+
+	  ASET (object, COMPILED_BYTECODE, bytecode);
 	  ASET (object, COMPILED_CONSTANTS, XCDR (tem));
 	}
     }
@@ -3451,6 +3568,15 @@ record_unwind_protect_void (void (*function) (void))
 }
 
 void
+record_unwind_protect_module (enum specbind_tag kind, void *ptr)
+{
+  specpdl_ptr->kind = kind;
+  specpdl_ptr->unwind_ptr.func = NULL;
+  specpdl_ptr->unwind_ptr.arg = ptr;
+  grow_specpdl ();
+}
+
+void
 rebind_for_thread_switch (void)
 {
   union specbinding *bind;
@@ -3500,6 +3626,14 @@ do_one_unbind (union specbinding *this_binding, bool unwinding,
       break;
     case SPECPDL_BACKTRACE:
       break;
+#ifdef HAVE_MODULES
+    case SPECPDL_MODULE_RUNTIME:
+      finalize_runtime_unwind (this_binding->unwind_ptr.arg);
+      break;
+    case SPECPDL_MODULE_ENVIRONMENT:
+      finalize_environment_unwind (this_binding->unwind_ptr.arg);
+      break;
+#endif
     case SPECPDL_LET:
       { /* If variable has a trivial value (no forwarding), and isn't
 	   trapped, we can just set it.  */
@@ -3830,6 +3964,10 @@ backtrace_eval_unrewind (int distance)
 	case SPECPDL_UNWIND_INTMAX:
 	case SPECPDL_UNWIND_VOID:
 	case SPECPDL_BACKTRACE:
+#ifdef HAVE_MODULES
+        case SPECPDL_MODULE_RUNTIME:
+        case SPECPDL_MODULE_ENVIRONMENT:
+#endif
 	  break;
 	case SPECPDL_LET:
 	  { /* If variable has a trivial value (no forwarding), we can
@@ -3965,6 +4103,10 @@ NFRAMES and BASE specify the activation frame to use, as in `backtrace-frame'.  
 	  case SPECPDL_UNWIND_EXCURSION:
 	  case SPECPDL_UNWIND_VOID:
 	  case SPECPDL_BACKTRACE:
+#ifdef HAVE_MODULES
+          case SPECPDL_MODULE_RUNTIME:
+          case SPECPDL_MODULE_ENVIRONMENT:
+#endif
 	    break;
 
 	  default:
@@ -3993,7 +4135,7 @@ mark_specpdl (union specbinding *first, union specbinding *ptr)
 	  break;
 
 	case SPECPDL_UNWIND_ARRAY:
-	  mark_maybe_objects (pdl->unwind_array.array, pdl->unwind_array.nelts);
+	  mark_objects (pdl->unwind_array.array, pdl->unwind_array.nelts);
 	  break;
 
 	case SPECPDL_UNWIND_EXCURSION:
@@ -4007,10 +4149,17 @@ mark_specpdl (union specbinding *first, union specbinding *ptr)
 	    mark_object (backtrace_function (pdl));
 	    if (nargs == UNEVALLED)
 	      nargs = 1;
-	    while (nargs--)
-	      mark_object (backtrace_args (pdl)[nargs]);
+	    mark_objects (backtrace_args (pdl), nargs);
 	  }
 	  break;
+
+#ifdef HAVE_MODULES
+        case SPECPDL_MODULE_RUNTIME:
+          break;
+        case SPECPDL_MODULE_ENVIRONMENT:
+          mark_module_environment (pdl->unwind_ptr.arg);
+          break;
+#endif
 
 	case SPECPDL_LET_DEFAULT:
 	case SPECPDL_LET_LOCAL:
@@ -4181,6 +4330,14 @@ The Edebug package uses this to regain control.  */);
 Note that `debug-on-error', `debug-on-quit' and friends
 still determine whether to handle the particular condition.  */);
   Vdebug_on_signal = Qnil;
+
+  DEFVAR_BOOL ("backtrace-on-error-noninteractive",
+               backtrace_on_error_noninteractive,
+               doc: /* Non-nil means print backtrace on error in batch mode.
+If this is nil, errors in batch mode will just print the error
+message upon encountering an unhandled error, without showing
+the Lisp backtrace.  */);
+  backtrace_on_error_noninteractive = true;
 
   /* The value of num_nonmacro_input_events as of the last time we
    started to enter the debugger.  If we decide to enter the debugger

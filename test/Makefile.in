@@ -89,11 +89,6 @@ unexport EMACSDATA EMACSDOC EMACSPATH GREP_OPTIONS
 ## To run tests under a debugger, set this to eg: "gdb --args".
 GDB =
 
-# The locale to run tests under.  Tests should work if this is set to
-# any supported locale.  Use the C locale by default, as it should be
-# supported everywhere.
-TEST_LOCALE = C
-
 # Set this to 'yes' to run the tests in an interactive instance.
 TEST_INTERACTIVE ?= no
 
@@ -127,8 +122,9 @@ MODULES_EMACSOPT :=
 endif
 
 # The actual Emacs command run in the targets below.
-# Prevent any setting of EMACSLOADPATH in user environment causing problems.
-emacs = EMACSLOADPATH= LC_ALL=$(TEST_LOCALE) \
+# Prevent any setting of EMACSLOADPATH in user environment causing problems,
+# and prevent locals to influence the text of the errors we expect to receive.
+emacs = LANG=C EMACSLOADPATH= 		   \
  EMACS_TEST_DIRECTORY=$(abspath $(srcdir)) \
  $(GDB) "$(EMACS)" $(MODULES_EMACSOPT) $(EMACSOPT)
 
@@ -137,7 +133,7 @@ emacs = EMACSLOADPATH= LC_ALL=$(TEST_LOCALE) \
 # exists, or writing to ~/.bzr.log when running bzr commands).
 TEST_HOME = /nonexistent
 
-test_module_dir := data/emacs-module
+test_module_dir := src/emacs-module-resources
 
 .PHONY: all check
 
@@ -166,9 +162,13 @@ endif
 
 ## Save logs, and show logs for failed tests.
 WRITE_LOG = > $@ 2>&1 || { STAT=$$?; cat $@; exit $$STAT; }
+## On Hydra or Emba, always show logs for certain problematic tests.
 ifdef EMACS_HYDRA_CI
-## On Hydra, always show logs for certain problematic tests.
 lisp/net/tramp-tests.log \
+: WRITE_LOG = 2>&1 | tee $@
+endif
+ifdef EMACS_EMBA_CI
+lisp/filenotify-tests.log lisp/net/tramp-tests.log \
 : WRITE_LOG = 2>&1 | tee $@
 endif
 
@@ -247,6 +247,18 @@ endef
 
 $(foreach test,${TESTS},$(eval $(call test_template,${test})))
 
+## Get the tests for only a specific directory.
+SUBDIRS = $(sort $(shell find lib-src lisp src -type d ! -path "*resources*" -print))
+
+define subdir_template
+  .PHONY: check-$(subst /,-,$(1))
+  check-$(subst /,-,$(1)):
+	@${MAKE} check LOGFILES="$(patsubst %.el,%.log, \
+		$(patsubst $(srcdir)/%,%,$(wildcard $(1)/*.el)))"
+endef
+
+$(foreach subdir, $(SUBDIRS), $(eval $(call subdir_template,$(subdir))))
+
 ifeq (@HAVE_MODULES@, yes)
 # -fPIC is a no-op on Windows, but causes a compiler warning
 ifeq ($(SO),.dll)
@@ -255,8 +267,8 @@ else
 FPIC_CFLAGS = -fPIC
 endif
 
-GMP_LIB = @GMP_LIB@
-GMP_OBJ = $(if @GMP_OBJ@, ../src/@GMP_OBJ@)
+GMP_H = @GMP_H@
+LIBGMP = @LIBGMP@
 
 MODULE_CFLAGS = -I../src -I$(srcdir)/../src -I../lib -I$(srcdir)/../lib \
   $(FPIC_CFLAGS) $(PROFILING_CFLAGS) \
@@ -271,7 +283,9 @@ src/emacs-module-tests.log src/emacs-module-tests.elc: $(test_module)
 $(test_module): $(test_module:${SO}=.c) ../src/emacs-module.h
 	$(AM_V_at)${MKDIR_P} $(dir $@)
 	$(AM_V_CCLD)$(CC) -shared $(CPPFLAGS) $(MODULE_CFLAGS) $(LDFLAGS) \
-	  -o $@ $< $(GMP_LIB) $(GMP_OBJ:.o=.c) \
+	  -o $@ $< $(LIBGMP) \
+	  $(and $(GMP_H),$(srcdir)/../lib/mini-gmp-gnulib.c) \
+	  $(if $(OMIT_GNULIB_MODULE_free-posix),,$(srcdir)/../lib/free.c) \
 	  $(srcdir)/../lib/timespec.c $(srcdir)/../lib/gettime.c
 endif
 
@@ -311,10 +325,10 @@ check-doit:
 ifeq ($(TEST_INTERACTIVE), yes)
 	HOME=$(TEST_HOME) $(emacs) \
 	  -l ert ${ert_opts} \
-	  $(patsubst %,-l %,$(if $(findstring $(TEST_LOAD_EL),yes),$ELFILES,$(ELFILES:.el=)))  \
+	  $(patsubst %,-l %,$(if $(findstring $(TEST_LOAD_EL),yes),$ELFILES,$(ELFILES:.el=))) \
 	  $(TEST_RUN_ERT)
 else
-	-@${MAKE} -k  ${LOGFILES}
+	-@${MAKE} -k ${LOGFILES}
 	@$(emacs) --batch -l ert --eval \
 	"(ert-summarize-tests-batch-and-exit ${SUMMARIZE_TESTS})" ${LOGFILES}
 endif

@@ -117,11 +117,10 @@
 ;;    correctly, but I imagine them to be rare.
 ;; 3) Regexps for hilit19 are no longer supported.
 ;; 4) For FIXED FORMAT code, use fortran mode.
-;; 5) This mode does not work under emacs-18.x.
-;; 6) Preprocessor directives, i.e., lines starting with # are left-justified
+;; 5) Preprocessor directives, i.e., lines starting with # are left-justified
 ;;    and are untouched by all case-changing commands. There is, at present, no
 ;;    mechanism for treating multi-line directives (continued by \ ).
-;; 7) f77 do-loops do 10 i=.. ; ; 10 continue are not correctly indented.
+;; 6) f77 do-loops do 10 i=.. ; ; 10 continue are not correctly indented.
 ;;    You are urged to use f90-do loops (with labels if you wish).
 
 ;; List of user commands
@@ -718,10 +717,7 @@ Can be overridden by the value of `font-lock-maximum-decoration'.")
     (modify-syntax-entry ?*  "."  table)
     (modify-syntax-entry ?/  "."  table)
     (modify-syntax-entry ?%  "."  table) ; bug#8820
-    ;; I think that the f95 standard leaves the behavior of \
-    ;; unspecified, but that f2k will require it to be non-special.
-    ;; Use `f90-backslash-not-special' to change.
-    (modify-syntax-entry ?\\ "\\" table) ; escape chars
+    (modify-syntax-entry ?\\ "."  table)
     table)
   "Syntax table used in F90 mode.")
 
@@ -926,9 +922,8 @@ then the presence of the token here allows a line-break before or
 after the other character, where a break would not normally be
 allowed.  This minor issue currently only affects \"(/\" and \"/)\".")
 
-(defvar f90-cache-position nil
+(defvar-local f90-cache-position nil
   "Temporary position used to speed up region operations.")
-(make-variable-buffer-local 'f90-cache-position)
 
 
 ;; Hideshow support.
@@ -1179,29 +1174,26 @@ Turning on F90 mode calls the value of the variable `f90-mode-hook'
 with no args, if that value is non-nil."
   :group 'f90
   :abbrev-table f90-mode-abbrev-table
-  (set (make-local-variable 'indent-line-function) 'f90-indent-line)
-  (set (make-local-variable 'indent-region-function) 'f90-indent-region)
-  (set (make-local-variable 'comment-start) "!")
-  (set (make-local-variable 'comment-start-skip) "!+ *")
-  (set (make-local-variable 'comment-indent-function) 'f90-comment-indent)
-  (set (make-local-variable 'abbrev-all-caps) t)
-  (set (make-local-variable 'normal-auto-fill-function) 'f90-do-auto-fill)
+  (setq-local indent-line-function #'f90-indent-line)
+  (setq-local indent-region-function #'f90-indent-region)
+  (setq-local comment-start "!")
+  (setq-local comment-start-skip "!+ *")
+  (setq-local comment-indent-function 'f90-comment-indent)
+  (setq-local abbrev-all-caps t)
+  (setq-local normal-auto-fill-function #'f90-do-auto-fill)
   (setq indent-tabs-mode nil)           ; auto buffer local
-  (set (make-local-variable 'fill-paragraph-function) 'f90-fill-paragraph)
-  (set (make-local-variable 'font-lock-defaults)
-       '((f90-font-lock-keywords f90-font-lock-keywords-1
-                                 f90-font-lock-keywords-2
-                                 f90-font-lock-keywords-3
-                                 f90-font-lock-keywords-4)
-         nil t))
-  (set (make-local-variable 'imenu-case-fold-search) t)
-  (set (make-local-variable 'imenu-generic-expression)
-       f90-imenu-generic-expression)
-  (set (make-local-variable 'beginning-of-defun-function)
-       'f90-beginning-of-subprogram)
-  (set (make-local-variable 'end-of-defun-function) 'f90-end-of-subprogram)
-  (set (make-local-variable 'add-log-current-defun-function)
-       #'f90-current-defun))
+  (setq-local fill-paragraph-function #'f90-fill-paragraph)
+  (setq-local font-lock-defaults
+              '((f90-font-lock-keywords f90-font-lock-keywords-1
+                                        f90-font-lock-keywords-2
+                                        f90-font-lock-keywords-3
+                                        f90-font-lock-keywords-4)
+                nil t))
+  (setq-local imenu-case-fold-search t)
+  (setq-local imenu-generic-expression f90-imenu-generic-expression)
+  (setq-local beginning-of-defun-function #'f90-beginning-of-subprogram)
+  (setq-local end-of-defun-function #'f90-end-of-subprogram)
+  (setq-local add-log-current-defun-function #'f90-current-defun))
 
 
 ;; Inline-functions.
@@ -1649,25 +1641,28 @@ Return (TYPE NAME), or nil if not found."
   (interactive)
   (let ((count 1) (case-fold-search t) matching-beg)
     (beginning-of-line)
-    (while (and (> count 0)
-                (re-search-backward f90-program-block-re nil 'move))
-      (beginning-of-line)
-      (skip-chars-forward " \t0-9")
-      ;; Check if in string in case using non-standard feature where
-      ;; continued strings do not need "&" at start of continuations.
-      (cond ((f90-in-string))
-            ((setq matching-beg (f90-looking-at-program-block-start))
-             (setq count (1- count)))
-            ((f90-looking-at-program-block-end)
-             (setq count (1+ count)))))
-    (beginning-of-line)
-    (if (zerop count)
-        matching-beg
-      ;; Note this includes the case of an un-named main program,
-      ;; in which case we go to (point-min).
-      (if (called-interactively-p 'interactive)
-	  (message "No beginning found"))
-      nil)))
+    ;; Check whether we're already at the start of a subprogram.
+    (or (f90-looking-at-program-block-start)
+        ;; We're not; search backwards.
+        (while (and (> count 0)
+                    (re-search-backward f90-program-block-re nil 'move))
+          (beginning-of-line)
+          (skip-chars-forward " \t0-9")
+          ;; Check if in string in case using non-standard feature where
+          ;; continued strings do not need "&" at start of continuations.
+          (cond ((f90-in-string))
+                ((setq matching-beg (f90-looking-at-program-block-start))
+                 (setq count (1- count)))
+                ((f90-looking-at-program-block-end)
+                 (setq count (1+ count)))))
+        (beginning-of-line)
+        (if (zerop count)
+            matching-beg
+          ;; Note this includes the case of an un-named main program,
+          ;; in which case we go to (point-min).
+          (if (called-interactively-p 'interactive)
+	      (message "No beginning found"))
+          nil))))
 
 (defun f90-end-of-subprogram ()
   "Move point to the end of the current subprogram.
@@ -2396,9 +2391,11 @@ CHANGE-WORD should be one of `upcase-word', `downcase-word', `capitalize-word'."
 
 (defun f90-backslash-not-special (&optional all)
   "Make the backslash character (\\) be non-special in the current buffer.
+This is the default in `f90-mode'.
+
 With optional argument ALL, change the default for all present
-and future F90 buffers.  F90 mode normally treats backslash as an
-escape character."
+and future F90 buffers."
+  (declare (obsolete nil "28.1"))
   (or (derived-mode-p 'f90-mode)
       (user-error "This function should only be used in F90 buffers"))
   (when (equal (char-syntax ?\\ ) ?\\ )

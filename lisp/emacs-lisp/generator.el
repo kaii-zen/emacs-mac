@@ -153,7 +153,7 @@ DYNAMIC-VAR bound to STATIC-VAR."
 (defun cps--add-state (kind body)
   "Create a new CPS state of KIND with BODY and return the state's name."
   (declare (indent 1))
-  (let* ((state (cps--gensym "cps-state-%s-" kind)))
+  (let ((state (cps--gensym "cps-state-%s-" kind)))
     (push (list state body cps--cleanup-function) cps--states)
     (push state cps--bindings)
     state))
@@ -673,7 +673,7 @@ When called as a function, NAME returns an iterator value that
 encapsulates the state of a computation that produces a sequence
 of values.  Callers can retrieve each value using `iter-next'."
   (declare (indent defun)
-           (debug (&define name lambda-list lambda-doc def-body))
+           (debug (&define name lambda-list lambda-doc &rest sexp))
            (doc-string 3))
   (cl-assert lexical-binding)
   (let* ((parsed-body (macroexp-parse-body body))
@@ -687,14 +687,14 @@ of values.  Callers can retrieve each value using `iter-next'."
   "Return a lambda generator.
 `iter-lambda' is to `iter-defun' as `lambda' is to `defun'."
   (declare (indent defun)
-           (debug (&define lambda-list lambda-doc def-body)))
+           (debug (&define lambda-list lambda-doc &rest sexp)))
   (cl-assert lexical-binding)
   `(lambda ,arglist
      ,(cps-generate-evaluator body)))
 
 (defmacro iter-make (&rest body)
   "Return a new iterator."
-  (declare (debug t))
+  (declare (debug (&rest sexp)))
   (cps-generate-evaluator body))
 
 (defconst iter-empty (lambda (_op _val) (signal 'iter-end-of-sequence nil))
@@ -720,22 +720,25 @@ is blocked."
 Evaluate BODY with VAR bound to each value from ITERATOR.
 Return the value with which ITERATOR finished iteration."
   (declare (indent 1)
-           (debug ((symbolp form) body)))
+           (debug ((symbolp form) &rest sexp)))
   (let ((done-symbol (cps--gensym "iter-do-iterator-done"))
         (condition-symbol (cps--gensym "iter-do-condition"))
         (it-symbol (cps--gensym "iter-do-iterator"))
         (result-symbol (cps--gensym "iter-do-result")))
-    `(let (,var
-           ,result-symbol
+    `(let (,result-symbol
            (,done-symbol nil)
            (,it-symbol ,iterator))
-       (while (not ,done-symbol)
-         (condition-case ,condition-symbol
-             (setf ,var (iter-next ,it-symbol))
-           (iter-end-of-sequence
-            (setf ,result-symbol (cdr ,condition-symbol))
-            (setf ,done-symbol t)))
-         (unless ,done-symbol ,@body))
+       (while
+           (let ((,var
+                  (condition-case ,condition-symbol
+                      (iter-next ,it-symbol)
+                    (iter-end-of-sequence
+                     (setf ,result-symbol (cdr ,condition-symbol))
+                     (setf ,done-symbol t)))))
+             (unless ,done-symbol
+               ,@body
+               ;; Loop until done-symbol is set.
+               t)))
        ,result-symbol)))
 
 (defvar cl--loop-args)

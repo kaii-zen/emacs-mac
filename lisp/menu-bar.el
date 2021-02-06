@@ -1,4 +1,4 @@
-;;; menu-bar.el --- define a default menu bar
+;;; menu-bar.el --- define a default menu bar  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1993-1995, 2000-2021 Free Software Foundation, Inc.
 
@@ -229,7 +229,8 @@
 	 (filename (car (find-file-read-args "Find file: " mustmatch))))
     (if mustmatch
 	(find-file-existing filename)
-      (find-file filename))))
+      (with-suppressed-warnings ((interactive-only find-file))
+        (find-file filename)))))
 
 ;; The "Edit->Search" submenu
 (defvar menu-bar-last-search-type nil
@@ -540,6 +541,12 @@
     (if (featurep 'ns)
         (bindings--define-key menu [separator-undo] menu-bar-separator))
 
+    (bindings--define-key menu [undo-redo]
+      '(menu-item "Redo" undo-redo
+                  :enable (and (not buffer-read-only)
+                           (undo--last-change-was-undo-p buffer-undo-list))
+                  :help "Redo last undone edits"))
+
     (bindings--define-key menu [undo]
       '(menu-item "Undo" undo
                   :enable (and (not buffer-read-only)
@@ -547,7 +554,7 @@
                                (if (eq last-command 'undo)
                                    (listp pending-undo-list)
                                  (consp buffer-undo-list)))
-                  :help "Undo last operation"))
+                  :help "Undo last edits"))
 
     menu))
 
@@ -661,31 +668,63 @@ PROPS are additional properties."
 	       :button (:toggle . (and (default-boundp ',fname)
 				       (default-value ',fname)))))
 
-(defmacro menu-bar-make-toggle (name variable doc message help &rest body)
+(defmacro menu-bar-make-toggle (command variable item-name message help
+                                        &rest body)
+  "Define a menu-bar toggle command.
+See `menu-bar-make-toggle-command', for which this is a
+compatibility wrapper.  BODY is passed in as SETTING-SEXP in that macro."
+  (declare (obsolete menu-bar-make-toggle-command "28.1"))
+  `(menu-bar-make-toggle-command ,command ,variable ,item-name ,message ,help
+                                 ,(and body
+                                       `(progn
+                                          ,@body))))
+
+(defmacro menu-bar-make-toggle-command (command variable item-name message
+                                                help
+                                                &optional setting-sexp
+                                                &rest keywords)
+  "Define a menu-bar toggle command.
+COMMAND (a symbol) is the toggle command to define.
+
+VARIABLE (a symbol) is the variable to set.
+
+ITEM-NAME (a string) is the menu-item name.
+
+MESSAGE is a format string for the toggle message, with %s for the new
+status.
+
+HELP (a string) is the `:help' tooltip text and the doc string first
+line (minus final period) for the command.
+
+SETTING-SEXP is a Lisp sexp that sets VARIABLE, or it is nil meaning
+set it according to its `defcustom' or using `set-default'.
+
+KEYWORDS is a plist for `menu-item' for keywords other than `:help'."
   `(progn
-     (defun ,name (&optional interactively)
+     (defun ,command (&optional interactively)
        ,(concat "Toggle whether to " (downcase (substring help 0 1))
-		(substring help 1) ".
+                (substring help 1) ".
 In an interactive call, record this option as a candidate for saving
 by \"Save Options\" in Custom buffers.")
        (interactive "p")
-       (if ,(if body `(progn . ,body)
-	      `(progn
+       (if ,(if setting-sexp
+                `,setting-sexp
+              `(progn
 		 (custom-load-symbol ',variable)
 		 (let ((set (or (get ',variable 'custom-set) 'set-default))
 		       (get (or (get ',variable 'custom-get) 'default-value)))
 		   (funcall set ',variable (not (funcall get ',variable))))))
-	   (message ,message "enabled globally")
-  	 (message ,message "disabled globally"))
-       ;; The function `customize-mark-as-set' must only be called when
-       ;; a variable is set interactively, as the purpose is to mark it as
-       ;; a candidate for "Save Options", and we do not want to save options
-       ;; the user have already set explicitly in his init file.
-       (if interactively (customize-mark-as-set ',variable)))
-     '(menu-item ,doc ,name
-		 :help ,help
-		 :button (:toggle . (and (default-boundp ',variable)
-					 (default-value ',variable))))))
+           (message ,message "enabled globally")
+         (message ,message "disabled globally"))
+       ;; `customize-mark-as-set' must only be called when a variable is set
+       ;; interactively, because the purpose is to mark the variable as a
+       ;; candidate for `Save Options', and we do not want to save options that
+       ;; the user has already set explicitly in the init file.
+       (when interactively (customize-mark-as-set ',variable)))
+     '(menu-item ,item-name ,command :help ,help
+                 :button (:toggle . (and (default-boundp ',variable)
+                                         (default-value ',variable)))
+                 ,@keywords)))
 
 ;; Function for setting/saving default font.
 
@@ -957,10 +996,11 @@ The selected font will be the default on both the existing and future frames."
                   :help "Indicate buffer boundaries in fringe"))
 
     (bindings--define-key menu [indicate-empty-lines]
-      (menu-bar-make-toggle toggle-indicate-empty-lines indicate-empty-lines
-                            "Empty Line Indicators"
-                            "Indicating of empty lines %s"
-                            "Indicate trailing empty lines in fringe, globally"))
+      (menu-bar-make-toggle-command
+       toggle-indicate-empty-lines indicate-empty-lines
+       "Empty Line Indicators"
+       "Indicating of empty lines %s"
+       "Indicate trailing empty lines in fringe, globally"))
 
     (bindings--define-key menu [customize]
       '(menu-item "Customize Fringe" menu-bar-showhide-fringe-menu-customize
@@ -1405,7 +1445,7 @@ mail status in mode line"))
     (bindings--define-key menu [custom-separator]
       menu-bar-separator)
     (bindings--define-key menu [case-fold-search]
-      (menu-bar-make-toggle
+      (menu-bar-make-toggle-command
        toggle-case-fold-search case-fold-search
        "Ignore Case"
        "Case-Insensitive Search %s"
@@ -1436,7 +1476,7 @@ mail status in mode line"))
 
     (if (featurep 'system-font-setting)
         (bindings--define-key menu [menu-system-font]
-          (menu-bar-make-toggle
+          (menu-bar-make-toggle-command
            toggle-use-system-font font-use-system-font
            "Use System Font"
            "Use system font: %s"
@@ -1462,13 +1502,15 @@ mail status in mode line"))
       menu-bar-separator)
 
     (bindings--define-key menu [debug-on-quit]
-      (menu-bar-make-toggle toggle-debug-on-quit debug-on-quit
-                            "Enter Debugger on Quit/C-g" "Debug on Quit %s"
-                            "Enter Lisp debugger when C-g is pressed"))
+      (menu-bar-make-toggle-command
+       toggle-debug-on-quit debug-on-quit
+       "Enter Debugger on Quit/C-g" "Debug on Quit %s"
+       "Enter Lisp debugger when C-g is pressed"))
     (bindings--define-key menu [debug-on-error]
-      (menu-bar-make-toggle toggle-debug-on-error debug-on-error
-                            "Enter Debugger on Error" "Debug on Error %s"
-                            "Enter Lisp debugger when an error is signaled"))
+      (menu-bar-make-toggle-command
+       toggle-debug-on-error debug-on-error
+       "Enter Debugger on Error" "Debug on Error %s"
+       "Enter Lisp debugger when an error is signaled"))
     (bindings--define-key menu [debugger-separator]
       menu-bar-separator)
 
@@ -1480,20 +1522,34 @@ mail status in mode line"))
     (bindings--define-key menu [cursor-separator]
       menu-bar-separator)
 
+    (bindings--define-key menu [save-desktop]
+      (menu-bar-make-toggle-command
+       toggle-save-desktop-globally desktop-save-mode
+       "Save State between Sessions"
+       "Saving desktop state %s"
+       "Visit desktop of previous session when restarting Emacs"
+       (progn
+         (require 'desktop)
+         ;; Do it by name, to avoid a free-variable
+         ;; warning during byte compilation.
+         (set-default
+	  'desktop-save-mode (not (symbol-value 'desktop-save-mode))))))
+
     (bindings--define-key menu [save-place]
-      (menu-bar-make-toggle
+      (menu-bar-make-toggle-command
        toggle-save-place-globally save-place-mode
        "Save Place in Files between Sessions"
        "Saving place in files %s"
        "Visit files of previous session when restarting Emacs"
-       (require 'saveplace)
-       ;; Do it by name, to avoid a free-variable
-       ;; warning during byte compilation.
-       (set-default
-	'save-place-mode (not (symbol-value 'save-place-mode)))))
+       (progn
+         (require 'saveplace)
+         ;; Do it by name, to avoid a free-variable
+         ;; warning during byte compilation.
+         (set-default
+	  'save-place-mode (not (symbol-value 'save-place-mode))))))
 
     (bindings--define-key menu [uniquify]
-      (menu-bar-make-toggle
+      (menu-bar-make-toggle-command
        toggle-uniquify-buffer-names uniquify-buffer-name-style
        "Use Directory Names in Buffer Names"
        "Directory name in buffer names (uniquify) %s"
@@ -1507,7 +1563,7 @@ mail status in mode line"))
     (bindings--define-key menu [cua-mode]
       (menu-bar-make-mm-toggle
        cua-mode
-       "Use CUA Keys (Cut/Paste with C-x/C-c/C-v)"
+       "Cut/Paste with C-x/C-c/C-v (CUA Mode)"
        "Use C-z/C-x/C-c/C-v keys for undo/cut/copy/paste"
        (:visible (or (not (boundp 'cua-enable-cua-keys))
 		     cua-enable-cua-keys))))
@@ -1515,8 +1571,8 @@ mail status in mode line"))
     (bindings--define-key menu [cua-emulation-mode]
       (menu-bar-make-mm-toggle
        cua-mode
-       "Shift movement mark region (CUA)"
-       "Use shifted movement keys to set and extend the region"
+       "CUA Mode (without C-x/C-c/C-v)"
+       "Enable CUA Mode without rebinding C-x/C-c/C-v keys"
        (:visible (and (boundp 'cua-enable-cua-keys)
 		      (not cua-enable-cua-keys)))))
 
@@ -1807,6 +1863,10 @@ mail status in mode line"))
     (bindings--define-key menu [list-keybindings]
       '(menu-item "List Key Bindings" describe-bindings
                   :help "Display all current key bindings (keyboard shortcuts)"))
+    (bindings--define-key menu [list-recent-keystrokes]
+      '(menu-item "Show Recent Inputs" view-lossage
+                  :help "Display last few input events and the commands \
+they ran"))
     (bindings--define-key menu [describe-current-display-table]
       '(menu-item "Describe Display Table" describe-current-display-table
                   :help "Describe the current display table"))
@@ -1822,6 +1882,9 @@ mail status in mode line"))
     (bindings--define-key menu [describe-function]
       '(menu-item "Describe Function..." describe-function
                   :help "Display documentation of function/command"))
+    (bindings--define-key menu [shortdoc-display-group]
+      '(menu-item "Function Group Overview..." shortdoc-display-group
+                  :help "Display a function overview for a specific topic"))
     (bindings--define-key menu [describe-key-1]
       '(menu-item "Describe Key or Mouse Operation..." describe-key
                   ;; Users typically don't identify keys and menu items...
@@ -2026,6 +2089,8 @@ key, a click, or a menu-item"))
 (bindings--define-key global-map [menu-bar help-menu]
   (cons (purecopy "Help") menu-bar-help-menu))
 
+(define-key global-map [menu-bar mouse-1] 'menu-bar-open-mouse)
+
 (defun menu-bar-menu-frame-live-and-visible-p ()
   "Return non-nil if the menu frame is alive and visible.
 The menu frame is the frame for which we are updating the menu."
@@ -2175,9 +2240,8 @@ Buffers menu is regenerated."
   :type 'boolean
   :group 'menu)
 
-(defvar list-buffers-directory nil
+(defvar-local list-buffers-directory nil
   "String to display in buffer listings for buffers not visiting a file.")
-(make-variable-buffer-local 'list-buffers-directory)
 
 (defun menu-bar-select-buffer ()
   (interactive)
@@ -2603,6 +2667,92 @@ If FRAME is nil or not given, use the selected frame."
 
 (global-set-key [f10] 'menu-bar-open)
 
+(defun menu-bar-open-mouse (event)
+  "Open the menu bar for the menu item clicked on by the mouse.
+EVENT should be a mouse down or click event.
+
+Also see `menu-bar-open', which this calls.
+This command is to be used when you click the mouse in the menubar."
+  (interactive "e")
+  ;; This only should be bound to clicks on the menu-bar, outside of
+  ;; any window.
+  (let ((window (posn-window (event-start event))))
+    (when window
+      (error "Event is inside window %s" window)))
+
+  (let* ((x-position (car (posn-x-y (event-start event))))
+         (menu-bar-item-cons (menu-bar-item-at-x x-position)))
+    (menu-bar-open nil
+                   (if menu-bar-item-cons
+                       (cdr menu-bar-item-cons)
+                     0))))
+
+(defun menu-bar-keymap ()
+  "Return the current menu-bar keymap.
+
+The ordering of the return value respects `menu-bar-final-items'."
+  (let ((menu-bar '())
+        (menu-end '()))
+    (map-keymap
+     (lambda (key binding)
+       (let ((pos (seq-position menu-bar-final-items key))
+             (menu-item (cons key binding)))
+         (if pos
+             ;; If KEY is the name of an item that we want to put
+             ;; last, store it separately with explicit ordering for
+             ;; sorting.
+             (push (cons pos menu-item) menu-end)
+           (push menu-item menu-bar))))
+     (lookup-key (menu-bar-current-active-maps) [menu-bar]))
+    `(keymap ,@(nreverse menu-bar)
+             ,@(mapcar #'cdr (sort menu-end
+                                   (lambda (a b)
+                                     (< (car a) (car b))))))))
+
+(defun menu-bar-current-active-maps ()
+  "Return the current active maps in the order the menu bar displays them.
+This value does not take into account `menu-bar-final-items' as that applies
+per-item."
+  ;; current-active-maps returns maps in the order local then
+  ;; global. The menu bar displays items in the opposite order.
+  (cons 'keymap (nreverse (current-active-maps))))
+
+(defun menu-bar-item-at-x (x-position)
+  "Return a cons of the form (KEY . X) for a menu item.
+The returned X is the left X coordinate for that menu item.
+
+X-POSITION is the X coordinate being queried.  If nothing is clicked on,
+returns nil."
+  (let ((column 0)
+        (menu-bar (menu-bar-keymap))
+        prev-key
+        prev-column
+        found)
+    (catch 'done
+      (map-keymap
+       (lambda (key binding)
+         (when (> column x-position)
+           (setq found t)
+           (throw 'done nil))
+         (setq prev-key key)
+         (pcase binding
+           ((or `(,(and (pred stringp) name) . ,_) ;Simple menu item.
+                `(menu-item ,name ,_cmd            ;Extended menu item.
+                            . ,(and props
+                                    (guard (let ((visible
+                                                  (plist-get props :visible)))
+                                             (or (null visible)
+                                                 (eval visible)))))))
+            (setq prev-column column
+                  column (+ column (length name) 1)))))
+       menu-bar)
+      ;; Check the last menu item.
+      (when (> column x-position)
+        (setq found t)))
+    (if found
+        (cons prev-key prev-column)
+      nil)))
+
 (defun buffer-menu-open ()
   "Start key navigation of the buffer menu.
 This is the keyboard interface to \\[mouse-buffer-menu]."
@@ -2621,6 +2771,16 @@ This is the keyboard interface to \\[mouse-buffer-menu]."
           (list name 'keymap name
                 (menu-bar-buffer-vector item)))))
     km))
+
+(defun menu-bar-define-mouse-key (map key def)
+  "Like `define-key', but adds all possible prefixes for the mouse."
+  (define-key map (vector key) def)
+  (mapc (lambda (prefix) (define-key map (vector prefix key) def))
+        ;; This list only needs to contain special window areas that
+        ;; are rendered in TTYs.  No need for *-scroll-bar, *-fringe,
+        ;; or *-divider.
+        '(tab-line header-line menu-bar tab-bar mode-line vertical-line
+          left-margin right-margin)))
 
 (defvar tty-menu-navigation-map
   (let ((map (make-sparse-keymap)))
@@ -2656,39 +2816,33 @@ This is the keyboard interface to \\[mouse-buffer-menu]."
     (define-key map [?\C-j] 'tty-menu-select)
     (define-key map [return] 'tty-menu-select)
     (define-key map [linefeed] 'tty-menu-select)
-    (define-key map [mouse-1] 'tty-menu-select)
-    (define-key map [drag-mouse-1] 'tty-menu-select)
-    (define-key map [mouse-2] 'tty-menu-select)
-    (define-key map [drag-mouse-2] 'tty-menu-select)
-    (define-key map [mouse-3] 'tty-menu-select)
-    (define-key map [drag-mouse-3] 'tty-menu-select)
-    (define-key map [wheel-down] 'tty-menu-next-item)
-    (define-key map [wheel-up] 'tty-menu-prev-item)
-    (define-key map [wheel-left] 'tty-menu-prev-menu)
-    (define-key map [wheel-right] 'tty-menu-next-menu)
-    ;; The following 4 bindings are for those whose text-mode mouse
+    (menu-bar-define-mouse-key map 'mouse-1 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'drag-mouse-1 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'mouse-2 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'drag-mouse-2 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'mouse-3 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'drag-mouse-3 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'wheel-down 'tty-menu-next-item)
+    (menu-bar-define-mouse-key map 'wheel-up 'tty-menu-prev-item)
+    (menu-bar-define-mouse-key map 'wheel-left 'tty-menu-prev-menu)
+    (menu-bar-define-mouse-key map 'wheel-right 'tty-menu-next-menu)
+    ;; The following 6 bindings are for those whose text-mode mouse
     ;; lack the wheel.
-    (define-key map [S-mouse-1] 'tty-menu-next-item)
-    (define-key map [S-drag-mouse-1] 'tty-menu-next-item)
-    (define-key map [S-mouse-2] 'tty-menu-prev-item)
-    (define-key map [S-drag-mouse-2] 'tty-menu-prev-item)
-    (define-key map [S-mouse-3] 'tty-menu-prev-item)
-    (define-key map [S-drag-mouse-3] 'tty-menu-prev-item)
-    (define-key map [header-line mouse-1] 'tty-menu-select)
-    (define-key map [header-line drag-mouse-1] 'tty-menu-select)
+    (menu-bar-define-mouse-key map 'S-mouse-1 'tty-menu-next-item)
+    (menu-bar-define-mouse-key map 'S-drag-mouse-1 'tty-menu-next-item)
+    (menu-bar-define-mouse-key map 'S-mouse-2 'tty-menu-prev-item)
+    (menu-bar-define-mouse-key map 'S-drag-mouse-2 'tty-menu-prev-item)
+    (menu-bar-define-mouse-key map 'S-mouse-3 'tty-menu-prev-item)
+    (menu-bar-define-mouse-key map 'S-drag-mouse-3 'tty-menu-prev-item)
     ;; The down-mouse events must be bound to tty-menu-ignore, so that
     ;; only releasing the mouse button pops up the menu.
-    (define-key map [mode-line down-mouse-1] 'tty-menu-ignore)
-    (define-key map [mode-line down-mouse-2] 'tty-menu-ignore)
-    (define-key map [mode-line down-mouse-3] 'tty-menu-ignore)
-    (define-key map [mode-line C-down-mouse-1] 'tty-menu-ignore)
-    (define-key map [mode-line C-down-mouse-2] 'tty-menu-ignore)
-    (define-key map [mode-line C-down-mouse-3] 'tty-menu-ignore)
-    (define-key map [down-mouse-1] 'tty-menu-ignore)
-    (define-key map [C-down-mouse-1] 'tty-menu-ignore)
-    (define-key map [C-down-mouse-2] 'tty-menu-ignore)
-    (define-key map [C-down-mouse-3] 'tty-menu-ignore)
-    (define-key map [mouse-movement] 'tty-menu-mouse-movement)
+    (menu-bar-define-mouse-key map 'down-mouse-1 'tty-menu-ignore)
+    (menu-bar-define-mouse-key map 'down-mouse-2 'tty-menu-ignore)
+    (menu-bar-define-mouse-key map 'down-mouse-3 'tty-menu-ignore)
+    (menu-bar-define-mouse-key map 'C-down-mouse-1 'tty-menu-ignore)
+    (menu-bar-define-mouse-key map 'C-down-mouse-2 'tty-menu-ignore)
+    (menu-bar-define-mouse-key map 'C-down-mouse-3 'tty-menu-ignore)
+    (menu-bar-define-mouse-key map 'mouse-movement 'tty-menu-mouse-movement)
     map)
   "Keymap used while processing TTY menus.")
 

@@ -101,11 +101,10 @@ NOTE: Not used in MS-DOS and Windows systems."
 (defvar jka-compr-use-shell
   (not (memq system-type '(ms-dos windows-nt))))
 
-(defvar jka-compr-really-do-compress nil
+(defvar-local jka-compr-really-do-compress nil
   "Non-nil in a buffer whose visited file was uncompressed on visiting it.
 This means compress the data on writing the file, even if the
 data appears to be compressed already.")
-(make-variable-buffer-local 'jka-compr-really-do-compress)
 (put 'jka-compr-really-do-compress 'permanent-local t)
 
 
@@ -664,11 +663,11 @@ and `inhibit-local-variables-suffixes' that were added
 by `jka-compr-installed'."
   ;; Delete from inhibit-local-variables-suffixes what jka-compr-install added.
   (mapc
-     (function (lambda (x)
-		 (and (jka-compr-info-strip-extension x)
-		      (setq inhibit-local-variables-suffixes
-			    (delete (jka-compr-info-regexp x)
-				    inhibit-local-variables-suffixes)))))
+     (lambda (x)
+       (and (jka-compr-info-strip-extension x)
+            (setq inhibit-local-variables-suffixes
+                  (delete (jka-compr-info-regexp x)
+                          inhibit-local-variables-suffixes))))
      jka-compr-compression-info-list--internal)
 
   (let* ((fnha (cons nil file-name-handler-alist))

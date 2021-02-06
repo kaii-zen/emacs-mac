@@ -36,7 +36,7 @@
    (keybindings :initform nil)
    (phony :initform t)
    (sourcetype :initform '(ede-source-emacs))
-   (availablecompilers :initform '(ede-emacs-compiler ede-xemacs-compiler))
+   (availablecompilers :initform '(ede-emacs-compiler))
    (aux-packages :initarg :aux-packages
 		 :initform nil
 		 :type list
@@ -104,6 +104,7 @@ For Emacs Lisp, return addsuffix command on source files."
 	 :name "xemacs"
 	 :variables '(("EMACS" . "xemacs")))
   "Compile Emacs Lisp programs with XEmacs.")
+(make-obsolete-variable 'ede-xemacs-compiler 'ede-emacs-compiler "28.1")
 
 ;;; Claiming files
 (cl-defmethod ede-buffer-mine ((this ede-proj-target-elisp) buffer)
@@ -153,18 +154,9 @@ Bonus: Return a cons cell: (COMPILED . UPTODATE)."
 	    (let* ((fsrc (expand-file-name src dir))
 		   (elc (concat (file-name-sans-extension fsrc) ".elc")))
 	      (with-no-warnings
-		(if (< emacs-major-version 24)
-		    ;; Does not have `byte-recompile-file'
-		    (if (or (not (file-exists-p elc))
-			    (file-newer-than-file-p fsrc elc))
-			(progn
-			  (setq comp (1+ comp))
-			  (byte-compile-file fsrc))
-		      (setq utd (1+ utd)))
-
-		  (if (eq (byte-recompile-file fsrc nil 0) t)
-		      (setq comp (1+ comp))
-		    (setq utd (1+ utd)))))))
+                (if (eq (byte-recompile-file fsrc nil 0) t)
+                    (setq comp (1+ comp))
+                  (setq utd (1+ utd))))))
 
 	    (oref obj source))
     (message "All Emacs Lisp sources are up to date in %s" (eieio-object-name obj))

@@ -30,7 +30,7 @@
 ;; your images, use image-dired.el
 ;;
 ;; The 'convert' program from 'ImageMagick'
-;; [URL:http://www.imagemagick.org/] is required.
+;; [URL:https://www.imagemagick.org/] is required.
 ;;
 ;; Thanks: Alex Schroeder <alex@gnu.org> for maintaining the package at some
 ;;         time.  The peoples at #emacs@freenode.net for numerous help.  RMS
@@ -148,36 +148,30 @@ this value can let another user see some of your images."
   :group 'thumbs)
 
 ;; Initialize some variable, for later use.
-(defvar thumbs-current-tmp-filename nil
+(defvar-local thumbs-current-tmp-filename nil
   "Temporary filename of current image.")
-(make-variable-buffer-local 'thumbs-current-tmp-filename)
 
-(defvar thumbs-current-image-filename nil
+(defvar-local thumbs-current-image-filename nil
   "Filename of current image.")
-(make-variable-buffer-local 'thumbs-current-image-filename)
 
-(defvar thumbs-extra-images 1
+(defvar-local thumbs-extra-images 1
   "Counter for showing extra images in thumbs buffer.")
-(make-variable-buffer-local 'thumbs-extra-images)
 (put 'thumbs-extra-images 'permanent-local t)
 
 (defvar thumbs-current-image-size nil
   "Size of current image.")
 
-(defvar thumbs-image-num nil
+(defvar-local thumbs-image-num nil
   "Number of current image.")
-(make-variable-buffer-local 'thumbs-image-num)
 
-(defvar thumbs-buffer nil
+(defvar-local thumbs-buffer nil
   "Name of buffer containing thumbnails associated with image.")
-(make-variable-buffer-local 'thumbs-buffer)
 
 (defvar thumbs-current-dir nil
   "Current directory.")
 
-(defvar thumbs-marked-list nil
+(defvar-local thumbs-marked-list nil
   "List of marked files.")
-(make-variable-buffer-local 'thumbs-marked-list)
 (put 'thumbs-marked-list 'permanent-local t)
 
 (defsubst thumbs-temp-dir ()
@@ -347,8 +341,7 @@ If MARKED is non-nil, the image is marked."
 		   :conversion ,(if marked 'disabled)
 		   :margin ,thumbs-margin)))
     (insert-image i)
-    (set (make-local-variable 'thumbs-current-image-size)
-         (image-size i t))))
+    (setq-local thumbs-current-image-size (image-size i t))))
 
 (defun thumbs-insert-thumb (img &optional marked)
   "Insert the thumbnail for IMG at point.
@@ -387,7 +380,7 @@ If MARKED is non-nil, the image is marked."
     (if dir (setq default-directory dir))
     (thumbs-do-thumbs-insertion list)
     (goto-char (point-min))
-    (set (make-local-variable 'thumbs-current-dir) default-directory)))
+    (setq-local thumbs-current-dir default-directory)))
 
 ;;;###autoload
 (defun thumbs-show-from-dir (dir &optional reg same-window)

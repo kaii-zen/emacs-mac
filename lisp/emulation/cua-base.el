@@ -375,11 +375,11 @@ managers, so try setting this to nil, if prefix override doesn't work."
 
 (defcustom cua-paste-pop-rotate-temporarily nil
   "If non-nil, \\[cua-paste-pop] only rotates the kill-ring temporarily.
-This means that both \\[yank] and the first \\[yank-pop] in a sequence always insert
-the most recently killed text.  Each immediately following \\[cua-paste-pop] replaces
-the previous text with the next older element on the `kill-ring'.
-With prefix arg, \\[universal-argument] \\[yank-pop] inserts the same text as the most
-recent \\[yank-pop] (or \\[yank]) command."
+This means that both \\[yank] and the first \\[yank-pop] in a sequence always
+insert the most recently killed text.  Each immediately following \\[cua-paste-pop]
+replaces the previous text with the next older element on the `kill-ring'.
+With prefix arg, \\[universal-argument] \\[yank-pop] inserts the same text as the
+most recent \\[yank-pop] (or \\[yank]) command."
   :type 'boolean
   :group 'cua)
 
@@ -634,9 +634,8 @@ a cons (TYPE . COLOR), then both properties are affected."
 
 ;;; Low-level Interface
 
-(defvar cua-inhibit-cua-keys nil
+(defvar-local cua-inhibit-cua-keys nil
   "Buffer-local variable that may disable the CUA keymappings.")
-(make-variable-buffer-local 'cua-inhibit-cua-keys)
 
 ;;; Aux. variables
 
@@ -644,9 +643,8 @@ a cons (TYPE . COLOR), then both properties are affected."
 ;; checked in post-command hook to see if point was moved
 (defvar cua--buffer-and-point-before-command nil)
 
-;; status string for mode line indications
-(defvar cua--status-string nil)
-(make-variable-buffer-local 'cua--status-string)
+(defvar-local cua--status-string nil
+  "Status string for mode line indications.")
 
 (defvar cua--debug nil)
 
@@ -860,7 +858,7 @@ With numeric prefix arg, copy to register 0-9 instead."
 (defun cua-cancel ()
   "Cancel the active region, rectangle, or global mark."
   (interactive)
-  (setq mark-active nil)
+  (deactivate-mark)
   (if (fboundp 'cua--cancel-rectangle)
       (cua--cancel-rectangle)))
 
@@ -1379,9 +1377,10 @@ the prefix fallback behavior."
 
   (cond
    (cua-mode
-    (setq cua--saved-state
-	  (list
-	   (and (boundp 'delete-selection-mode) delete-selection-mode)))
+    (unless cua--saved-state
+      (setq cua--saved-state
+	    (list
+	     (and (boundp 'delete-selection-mode) delete-selection-mode))))
     (if cua-delete-selection
         (delete-selection-mode 1)
       (if (and (boundp 'delete-selection-mode) delete-selection-mode)

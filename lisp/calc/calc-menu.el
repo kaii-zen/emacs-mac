@@ -1,4 +1,4 @@
-;;; calc-menu.el --- a menu for Calc
+;;; calc-menu.el --- a menu for Calc  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2007-2021 Free Software Foundation, Inc.
 

@@ -4,7 +4,7 @@
 
 ;; Author: Will Mengarini <seldon@eskimo.com>
 ;; Created: Mo 02 Mar 98
-;; Version: 0.51
+;; Old-Version: 0.51
 ;; Keywords: convenience, vi, repeat
 
 ;; This file is part of GNU Emacs.
@@ -84,10 +84,6 @@
 ;;   C-u - C-x TAB  [outdent rigidly one character]
 ;;         C-x {    shrink-window-horizontally
 ;;         C-x }    enlarge-window-horizontally
-
-;; This command was first called `vi-dot', because
-;; it was inspired by the `.' command in the vi editor,
-;; but it was renamed to make its name more meaningful.
 
 ;;; Code:
 
@@ -243,9 +239,7 @@ recently executed command not bound to an input event\"."
            (car (memq last-command-event
                       (listify-key-sequence
                        repeat-on-final-keystroke))))))
-    (if (memq last-repeatable-command '(exit-minibuffer
-					minibuffer-complete-and-exit
-					self-insert-and-exit))
+    (if (eq last-repeatable-command (caar command-history))
         (let ((repeat-command (car command-history)))
           (repeat-message "Repeating %S" repeat-command)
           (eval repeat-command))

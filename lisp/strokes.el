@@ -296,6 +296,8 @@ the corresponding interactive function.")
 
 (defvar strokes-load-hook nil
   "Functions to be called when Strokes is loaded.")
+(make-obsolete-variable 'strokes-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 ;;; ### NOT IMPLEMENTED YET ###
 ;;(defvar edit-strokes-menu
@@ -572,9 +574,8 @@ Optional GRID-RESOLUTION may be used in place of `strokes-grid-resolution'.
 The grid is a square whose dimension is [0,GRID-RESOLUTION)."
   (or grid-resolution (setq grid-resolution strokes-grid-resolution))
   (let ((stroke-extent (strokes-get-stroke-extent positions)))
-    (mapcar (function
-	     (lambda (pos)
-	       (strokes-get-grid-position stroke-extent pos grid-resolution)))
+    (mapcar (lambda (pos)
+              (strokes-get-grid-position stroke-extent pos grid-resolution))
 	    positions)))
 
 (defun strokes-fill-stroke (unfilled-stroke &optional force)
@@ -755,12 +756,12 @@ Optional EVENT is acceptable as the starting event of the stroke."
 	      (strokes-fill-current-buffer-with-whitespace))
 	    (when prompt
 	      (message "%s" prompt)
-	      (setq event (read-event))
+	      (setq event (read--potential-mouse-event))
 	      (or (strokes-button-press-event-p event)
 		  (error "You must draw with the mouse")))
 	    (unwind-protect
 		(track-mouse
-		  (or event (setq event (read-event)
+		  (or event (setq event (read--potential-mouse-event)
 				  safe-to-draw-p t))
 		  (while (not (strokes-button-release-event-p event))
 		    (if (strokes-mouse-event-p event)
@@ -775,7 +776,7 @@ Optional EVENT is acceptable as the starting event of the stroke."
 			    (setq safe-to-draw-p t))
 			  (push (cdr (mouse-pixel-position))
 				pix-locs)))
-		    (setq event (read-event)))))
+		    (setq event (read--potential-mouse-event)))))
 	    ;; protected
 	    ;; clean up strokes buffer and then bury it.
 	    (when (equal (buffer-name) strokes-buffer-name)
@@ -786,16 +787,16 @@ Optional EVENT is acceptable as the starting event of the stroke."
       ;; Otherwise, don't use strokes buffer and read stroke silently
       (when prompt
 	(message "%s" prompt)
-	(setq event (read-event))
+	(setq event (read--potential-mouse-event))
 	(or (strokes-button-press-event-p event)
 	    (error "You must draw with the mouse")))
       (track-mouse
-	(or event (setq event (read-event)))
+	(or event (setq event (read--potential-mouse-event)))
 	(while (not (strokes-button-release-event-p event))
 	  (if (strokes-mouse-event-p event)
 	      (push (cdr (mouse-pixel-position))
 		    pix-locs))
-	  (setq event (read-event))))
+	  (setq event (read--potential-mouse-event))))
       (setq grid-locs (strokes-renormalize-to-grid (nreverse pix-locs)))
       (strokes-fill-stroke
        (strokes-eliminate-consecutive-redundancies grid-locs)))))
@@ -816,10 +817,10 @@ Optional EVENT is acceptable as the starting event of the stroke."
 	(if prompt
 	    (while (not (strokes-button-press-event-p event))
 	      (message "%s" prompt)
-	      (setq event (read-event))))
+	      (setq event (read--potential-mouse-event))))
 	(unwind-protect
 	    (track-mouse
-	      (or event (setq event (read-event)))
+	      (or event (setq event (read--potential-mouse-event)))
 	      (while (not (and (strokes-button-press-event-p event)
 			       (eq 'mouse-3
 				   (car (get (car event)
@@ -833,14 +834,15 @@ Optional EVENT is acceptable as the starting event of the stroke."
 						?\s strokes-character))
 			(push (cdr (mouse-pixel-position))
 			      pix-locs)))
-		  (setq event (read-event)))
+		  (setq event (read--potential-mouse-event)))
 		(push strokes-lift pix-locs)
 		(while (not (strokes-button-press-event-p event))
-		  (setq event (read-event))))
+		  (setq event (read--potential-mouse-event))))
 	      ;; ### KLUDGE! ### sit and wait
 	      ;; for some useless event to
 	      ;; happen to fix the minibuffer bug.
-	      (while (not (strokes-button-release-event-p (read-event))))
+	      (while (not (strokes-button-release-event-p
+                           (read--potential-mouse-event))))
 	      (setq pix-locs (nreverse (cdr pix-locs))
 		    grid-locs (strokes-renormalize-to-grid pix-locs))
 	      (strokes-fill-stroke
@@ -1230,8 +1232,8 @@ the stroke as a character in some language."
 ;;	mode-popup-menu edit-strokes-menu) ; what about extent-specific stuff?
 ;;  (and (featurep 'menubar)
 ;;       current-menubar
-;;       (set (make-local-variable 'current-menubar)
-;;	    (copy-sequence current-menubar))
+;;       (setq-local current-menubar
+;;                   (copy-sequence current-menubar))
 ;;       (add-submenu nil edit-strokes-menu)))
 
 ;;(let ((map edit-strokes-mode-map))
@@ -1362,20 +1364,18 @@ If STROKES-MAP is not given, `strokes-global-map' will be used instead."
      finally do (unless (eobp)
                   (kill-region (1+ (point)) (point-max))))
     (view-buffer "*Strokes List*" nil)
-    (set (make-local-variable 'view-mode-map)
-	 (let ((map (copy-keymap view-mode-map)))
-	   (define-key map "q" `(lambda ()
-				  (interactive)
-				  (View-quit)
-				  (set-window-configuration ,config)))
-	   map))
+    (setq-local view-mode-map
+                (let ((map (copy-keymap view-mode-map)))
+                  (define-key map "q" `(lambda ()
+                                         (interactive)
+                                         (View-quit)
+                                         (set-window-configuration ,config)))
+                  map))
     (goto-char (point-min))))
 
 (defun strokes-alphabetic-lessp (stroke1 stroke2)
   "Return t if STROKE1's command name precedes STROKE2's in lexicographic order."
-  (let ((command-name-1 (symbol-name (cdr stroke1)))
-	(command-name-2 (symbol-name (cdr stroke2))))
-    (string-lessp command-name-1 command-name-2)))
+  (string-lessp (cdr stroke1) (cdr stroke2)))
 
 (defvar strokes-mode-map
   (let ((map (make-sparse-keymap)))

@@ -223,6 +223,13 @@ This variable is buffer-local."
 		 (other :tag "on" t))
   :group 'comint)
 
+(defcustom comint-highlight-input t
+  "If non-nil, highlight input with `comint-highlight-input' face.
+Otherwise keep the original highlighting untouched."
+  :version "28.1"
+  :type 'boolean
+  :group 'comint)
+
 (defface comint-highlight-input '((t (:weight bold)))
   "Face to use to highlight user input."
   :group 'comint)
@@ -248,6 +255,10 @@ to set this in a mode hook, rather than customize the default value."
   :type '(choice (const :tag "nil" nil)
 		 file)
   :group 'comint)
+
+(defvar comint-input-ring-file-prefix nil
+  "The prefix to skip when parsing the input ring file.
+This is useful in Zsh when the extended_history option is on.")
 
 (defcustom comint-scroll-to-bottom-on-input nil
   "Controls whether input to interpreter causes window to scroll.
@@ -351,6 +362,7 @@ This variable is buffer-local."
 ;; Some implementations of passwd use "Password (again)" as the 2nd prompt.
 ;; Something called "perforce" uses "Enter password:".
 ;; OpenVPN prints a prompt like: "Enter Auth Password:".
+;; OpenBSD doas prints "doas (user@host) password:".
 ;; See ert test `comint-test-password-regexp'.
 (defcustom comint-password-prompt-regexp
   (concat
@@ -359,7 +371,7 @@ This variable is buffer-local."
     '("Enter" "enter" "Enter same" "enter same" "Enter the" "enter the"
       "Enter Auth" "enter auth" "Old" "old" "New" "new" "'s" "login"
       "Kerberos" "CVS" "UNIX" " SMB" "LDAP" "PEM" "SUDO"
-      "[sudo]" "Repeat" "Bad" "Retype")
+      "[sudo]" "doas" "Repeat" "Bad" "Retype")
     t)
    ;; Allow for user name to precede password equivalent (Bug#31075).
    " +.*\\)"
@@ -599,6 +611,7 @@ The command \\[comint-accumulate] sets this.")
 
 (put 'comint-replace-by-expanded-history 'menu-enable 'comint-input-autoexpand)
 (put 'comint-input-ring 'permanent-local t)
+(put 'comint-input-ring-file-name 'permanent-local t)
 (put 'comint-input-ring-index 'permanent-local t)
 (put 'comint-save-input-ring-index 'permanent-local t)
 (put 'comint-input-autoexpand 'permanent-local t)
@@ -731,7 +744,7 @@ contents are sent to the process as its initial input.
 If PROGRAM is a string, any more args are arguments to PROGRAM.
 
 Return the (possibly newly created) process buffer."
-  (or (fboundp 'start-file-process)
+  (or (fboundp 'make-process)
       (error "Multi-processing is not supported for this system"))
   (setq buffer (get-buffer-create (or buffer (concat "*" name "*"))))
   ;; If no process, or nuked process, crank up a new one and put buffer in
@@ -809,18 +822,10 @@ series of processes in the same Comint buffer.  The hook
       (goto-char (point-max))
       (set-marker (process-mark proc) (point))
       ;; Feed it the startfile.
-      (cond (startfile
-	     ;;This is guaranteed to wait long enough
-	     ;;but has bad results if the comint does not prompt at all
-	     ;;	     (while (= size (buffer-size))
-	     ;;	       (sleep-for 1))
-	     ;;I hope 1 second is enough!
-	     (sleep-for 1)
-	     (goto-char (point-max))
-	     (insert-file-contents startfile)
-	     (setq startfile (buffer-substring (point) (point-max)))
-	     (delete-region (point) (point-max))
-	     (comint-send-string proc startfile)))
+      (when startfile
+        (comint-send-string proc (with-temp-buffer
+                                   (insert-file-contents startfile)
+                                   (buffer-string))))
       (run-hooks 'comint-exec-hook)
       buffer)))
 
@@ -974,6 +979,7 @@ See also `comint-input-ignoredups' and `comint-write-input-ring'."
 		(ring (make-ring ring-size))
                 ;; Use possibly buffer-local values of these variables.
                 (ring-separator comint-input-ring-separator)
+                (ring-file-prefix comint-input-ring-file-prefix)
                 (history-ignore comint-input-history-ignore)
                 (ignoredups comint-input-ignoredups))
 	   (with-temp-buffer
@@ -985,12 +991,15 @@ See also `comint-input-ignoredups' and `comint-write-input-ring'."
                (while (and (< count comint-input-ring-size)
                            (re-search-backward ring-separator nil t)
                            (setq end (match-beginning 0)))
-                 (setq start
-                       (if (re-search-backward ring-separator nil t)
-                           (match-end 0)
-                         (point-min)))
+                 (goto-char (if (re-search-backward ring-separator nil t)
+                                (match-end 0)
+                              (point-min)))
+                 (when (and ring-file-prefix
+                            (looking-at ring-file-prefix))
+                   ;; Skip zsh extended_history stamps
+                   (goto-char (match-end 0)))
+                 (setq start (point))
                  (setq history (buffer-substring start end))
-                 (goto-char start)
                  (when (and (not (string-match history-ignore history))
 			    (or (null ignoredups)
 				(ring-empty-p ring)
@@ -1207,7 +1216,7 @@ Moves relative to START, or `comint-input-ring-index'."
 	(process-mark (get-buffer-process (current-buffer))))
    (point-max)))
 
-(defun comint-previous-matching-input (regexp n)
+(defun comint-previous-matching-input (regexp n &optional restore)
   "Search backwards through input history for match for REGEXP.
 \(Previous history elements are earlier commands.)
 With prefix argument N, search for Nth previous match.
@@ -1218,16 +1227,24 @@ If N is negative, find the next or Nth next match."
     ;; Has a match been found?
     (if (null pos)
 	(user-error "Not found")
-      ;; If leaving the edit line, save partial input
-      (if (null comint-input-ring-index)	;not yet on ring
-	  (setq comint-stored-incomplete-input
-		(funcall comint-get-old-input)))
-      (setq comint-input-ring-index pos)
-      (unless isearch-mode
-	(let ((message-log-max nil))	; Do not write to *Messages*.
-	  (message "History item: %d" (1+ pos))))
-      (comint-delete-input)
-      (insert (ring-ref comint-input-ring pos)))))
+      (if (and comint-input-ring-index
+               restore
+               (or (and (< n 0)
+                        (< comint-input-ring-index pos))
+                   (and (> n 0)
+                        (> comint-input-ring-index pos))))
+          ;; We have a wrap; restore contents.
+          (comint-restore-input)
+        ;; If leaving the edit line, save partial input
+        (if (null comint-input-ring-index) ;not yet on ring
+	    (setq comint-stored-incomplete-input
+		  (funcall comint-get-old-input)))
+        (setq comint-input-ring-index pos)
+        (unless isearch-mode
+	  (let ((message-log-max nil))	; Do not write to *Messages*.
+	    (message "History item: %d" (1+ pos))))
+        (comint-delete-input)
+        (insert (ring-ref comint-input-ring pos))))))
 
 (defun comint-next-matching-input (regexp n)
   "Search forwards through input history for match for REGEXP.
@@ -1255,7 +1272,7 @@ If N is negative, search forwards for the -Nth following match."
 	    comint-input-ring-index nil))
     (comint-previous-matching-input
      (concat "^" (regexp-quote comint-matching-input-from-input-string))
-     n)
+     n t)
     (when (eq comint-move-point-for-matching-input 'after-input)
       (goto-char opoint))))
 
@@ -1758,7 +1775,7 @@ Argument 0 is the command name."
               ((>= mth 0) (1- (- count mth)))
               (t          (1- (- mth))))))
       (mapconcat
-       (function (lambda (a) a)) (nthcdr n (nreverse (nthcdr m args))) " "))))
+       (lambda (a) a) (nthcdr n (nreverse (nthcdr m args))) " "))))
 
 ;;
 ;; Input processing stuff
@@ -1881,9 +1898,10 @@ Similarly for Soar, Scheme, etc."
               (end (if no-newline (point) (1- (point)))))
           (with-silent-modifications
             (when (> end beg)
-              (add-text-properties beg end
-                                   '(front-sticky t
-                                     font-lock-face comint-highlight-input))
+              (when comint-highlight-input
+                (add-text-properties beg end
+                                     '( font-lock-face comint-highlight-input
+                                        front-sticky t )))
               (unless comint-use-prompt-regexp
                 ;; Give old user input a field property of `input', to
                 ;; distinguish it from both process output and unsent
@@ -2235,15 +2253,23 @@ This function could be on `comint-output-filter-functions' or bound to a key."
   "Strip trailing `^M' characters from the current output group.
 This function could be on `comint-output-filter-functions' or bound to a key."
   (interactive)
-  (let ((pmark (process-mark (get-buffer-process (current-buffer)))))
-    (save-excursion
-      (condition-case nil
-	  (goto-char
-	   (if (called-interactively-p 'interactive)
-	       comint-last-input-end comint-last-output-start))
-	(error nil))
-      (while (re-search-forward "\r+$" pmark t)
-	(replace-match "" t t)))))
+  (let ((process (get-buffer-process (current-buffer))))
+    (if (not process)
+        ;; This function may be used in
+        ;; `comint-output-filter-functions', and in that case, if
+        ;; there's no process, then we should do nothing.  If
+        ;; interactive, report an error.
+        (when (called-interactively-p 'interactive)
+          (error "No process in the current buffer"))
+      (let ((pmark (process-mark process)))
+        (save-excursion
+          (condition-case nil
+	      (goto-char
+	       (if (called-interactively-p 'interactive)
+	           comint-last-input-end comint-last-output-start))
+	    (error nil))
+          (while (re-search-forward "\r+$" pmark t)
+	    (replace-match "" t t)))))))
 (define-obsolete-function-alias 'shell-strip-ctrl-m #'comint-strip-ctrl-m "27.1")
 
 (defun comint-show-maximum-output ()
@@ -2350,18 +2376,18 @@ a buffer local variable."
 
 ;; For compatibility.
 (defun comint-read-noecho (prompt &optional _ignore)
+  (declare (obsolete read-passwd "28.1"))
   (read-passwd prompt))
 
 ;; These three functions are for entering text you don't want echoed or
 ;; saved -- typically passwords to ftp, telnet, or somesuch.
 ;; Just enter m-x comint-send-invisible and type in your line.
 
-(defvar comint-password-function nil
+(defvar-local comint-password-function nil
   "Abnormal hook run when prompted for a password.
 This function gets one argument, a string containing the prompt.
 It may return a string containing the password, or nil if normal
 password prompting should occur.")
-(make-variable-buffer-local 'comint-password-function)
 
 (defun comint-send-invisible (&optional prompt)
   "Read a string without echoing.
@@ -2398,11 +2424,13 @@ Security bug: your string can still be temporarily recovered with
 (defun comint-watch-for-password-prompt (string)
   "Prompt in the minibuffer for password and send without echoing.
 Looks for a match to `comint-password-prompt-regexp' in order
-to detect the need to (prompt and) send a password.
+to detect the need to (prompt and) send a password.  Ignores any
+carriage returns (\\r) in STRING.
 
 This function could be in the list `comint-output-filter-functions'."
   (when (let ((case-fold-search t))
-	  (string-match comint-password-prompt-regexp string))
+	  (string-match comint-password-prompt-regexp
+                        (replace-regexp-in-string "\r" "" string)))
     (when (string-match "^[ \n\r\t\v\f\b\a]+" string)
       (setq string (replace-match "" t t string)))
     (let ((comint--prompt-recursion-depth (1+ comint--prompt-recursion-depth)))
@@ -3124,7 +3152,7 @@ See `comint-word'."
               "\\$\\(?:\\([[:alpha:]][[:alnum:]]*\\)"
               "\\|{\\(?1:[^{}]+\\)}\\)"
               (when (memq system-type '(ms-dos windows-nt))
-                "\\|%\\(?1:[^\\\\/]*\\)%")
+                "\\|%\\(?1:[^\\/]*\\)%")
               (when comint-file-name-quote-list
                 "\\|\\\\\\(.\\)")))
          (qupos nil)
@@ -3425,7 +3453,7 @@ the completions."
 		 (eq (window-buffer (posn-window (event-start first)))
 		     (get-buffer "*Completions*"))
 		 (memq (key-binding key)
-                       '(mouse-choose-completion choose-completion))))
+                       '(choose-completion))))
 	  ;; If the user does choose-completion with the mouse,
 	  ;; execute the command, then delete the completion window.
 	  (progn
@@ -3641,7 +3669,7 @@ and does not normally need to be invoked by the end user or programmer."
     (setq-local comint-redirect-previous-input-string "")
 
     (setq mode-line-process
-	  (if mode-line-process
+	  (if (and mode-line-process (stringp (elt mode-line-process 0)))
 	      (list (concat (elt mode-line-process 0) " Redirection"))
 	    (list ":%s Redirection")))))
 
@@ -3842,7 +3870,11 @@ REGEXP-GROUP is the regular expression group in REGEXP to use."
 	(push (buffer-substring-no-properties
                (match-beginning regexp-group)
                (match-end regexp-group))
-              results))
+              results)
+        (when (zerop (length (match-string 0)))
+          ;; If the regexp can be empty (for instance, "^.*$"), we
+          ;; don't advance, so ensure forward progress.
+	  (forward-line 1)))
       (nreverse results))))
 
 ;; Converting process modes to use comint mode

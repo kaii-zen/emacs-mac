@@ -267,7 +267,7 @@ The current buffer is given by BUFFER."
     (with-current-buffer buffer
       (auto-save-mode -1)
       (setq buffer-file-name nil)
-      (erc-set-write-file-functions '(erc-save-buffer-in-logs))
+      (add-hook 'write-file-functions #'erc-save-buffer-in-logs nil t)
       (when erc-log-insert-log-on-open
 	(ignore-errors
 	  (save-excursion
@@ -334,7 +334,7 @@ This will not work with full paths, only names.
 
 Any unsafe characters in the name are replaced with \"!\".  The
 filename is downcased."
-  (downcase (erc-replace-regexp-in-string
+  (downcase (replace-regexp-in-string
 	     "[/\\]" "!" (convert-standard-filename filename))))
 
 (defun erc-current-logfile (&optional buffer)
@@ -414,8 +414,7 @@ You can save every individual message by putting this function on
   (or buffer (setq buffer (current-buffer)))
   (when (erc-logging-enabled buffer)
     (let ((file (erc-current-logfile buffer))
-	  (coding-system erc-log-file-coding-system)
-	  (inhibit-clash-detection t))	; needed for XEmacs
+          (coding-system erc-log-file-coding-system))
       (save-excursion
 	(with-current-buffer buffer
 	  (save-restriction

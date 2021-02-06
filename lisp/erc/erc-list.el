@@ -71,13 +71,13 @@
 (defun erc-list-make-string (channel users topic)
   (concat
    channel
-   (erc-propertize " "
-		   'display (list 'space :align-to erc-list-nusers-column)
-		   'face 'fixed-pitch)
+   (propertize " "
+	       'display (list 'space :align-to erc-list-nusers-column)
+	       'face 'fixed-pitch)
    users
-   (erc-propertize " "
-		   'display (list 'space :align-to erc-list-topic-column)
-		   'face 'fixed-pitch)
+   (propertize " "
+	       'display (list 'space :align-to erc-list-topic-column)
+	       'face 'fixed-pitch)
    topic))
 
 ;; Insert a record into the list buffer.
@@ -143,19 +143,19 @@
 
 ;; Helper function that makes a buttonized column header.
 (defun erc-list-button (title column)
-  (erc-propertize title
-		  'column-number column
-		  'help-echo "mouse-1: sort by column"
-		  'mouse-face 'header-line-highlight
-		  'keymap erc-list-menu-sort-button-map))
+  (propertize title
+	      'column-number column
+	      'help-echo "mouse-1: sort by column"
+	      'mouse-face 'header-line-highlight
+	      'keymap erc-list-menu-sort-button-map))
 
 (define-derived-mode erc-list-menu-mode special-mode "ERC-List"
   "Major mode for editing a list of irc channels."
   (setq header-line-format
 	(concat
-	 (erc-propertize " "
-			 'display '(space :align-to 0)
-			 'face 'fixed-pitch)
+	 (propertize " "
+		     'display '(space :align-to 0)
+		     'face 'fixed-pitch)
 	 (erc-list-make-string (erc-list-button "Channel" 1)
 			       (erc-list-button "# Users" 2)
 			       "Topic")))
@@ -188,15 +188,15 @@
      (lambda (_proc _parsed)
 	(remove-hook 'erc-server-322-functions 'erc-list-handle-322 t)))
     ;; Find the list buffer, empty it, and display it.
-    (set (make-local-variable 'erc-list-buffer)
-	 (get-buffer-create (concat "*Channels of "
-				    erc-server-announced-name
-				    "*")))
+    (setq-local erc-list-buffer
+                (get-buffer-create (concat "*Channels of "
+                                           erc-server-announced-name
+                                           "*")))
     (with-current-buffer erc-list-buffer
       (erc-list-menu-mode)
       (setq buffer-read-only nil)
       (erase-buffer)
-      (set (make-local-variable 'erc-list-server-buffer) server-buffer)
+      (setq-local erc-list-server-buffer server-buffer)
       (setq buffer-read-only t))
     (pop-to-buffer erc-list-buffer))
   t)
@@ -211,7 +211,7 @@ should usually be one or more channels, separated by commas.
 Please note that this function only works with IRC servers which conform
 to RFC and send the LIST header (#321) at start of list transmission."
   (erc-with-server-buffer
-   (set (make-local-variable 'erc-list-last-argument) line)
+   (setq-local erc-list-last-argument line)
    (erc-once-with-server-event
     321
     (let ((buf (current-buffer)))

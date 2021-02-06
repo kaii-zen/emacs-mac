@@ -205,6 +205,7 @@ Otherwise return the normal value."
 ;; incorrect.  However, this gives correct result in our cases, since we are
 ;; testing for sufficiently high Emacs versions.
 (defun viper-check-version (op major minor &optional type-of-emacs)
+  (declare (obsolete nil "28.1"))
   (if (and (boundp 'emacs-major-version) (boundp 'emacs-minor-version))
       (and (cond ((eq type-of-emacs 'xemacs) (featurep 'xemacs))
 		 ((eq type-of-emacs 'emacs) (featurep 'emacs))
@@ -248,15 +249,7 @@ Otherwise return the normal value."
     (goto-char cur-pos)
     result))
 
-;; Emacs used to count each multibyte character as several positions in the buffer,
-;; so we had to use Emacs's chars-in-region to count characters. Since 20.3,
-;; Emacs counts multibyte characters as 1 position.  XEmacs has always been
-;; counting each char as just one pos. So, now we can simply subtract beg from
-;; end to determine the number of characters in a region.
 (defun viper-chars-in-region (beg end &optional preserve-sign)
-  ;;(let ((count (abs (if (fboundp 'chars-in-region)
-  ;;    		(chars-in-region beg end)
-  ;;    	      (- end beg)))))
   (let ((count (abs (- end beg))))
     (if (and (< end beg) preserve-sign)
 	(- count)
@@ -603,7 +596,7 @@ Otherwise return the normal value."
 (defun viper-save-setting (var message file &optional erase-msg)
   (let* ((var-name (symbol-name var))
 	 (var-val (if (boundp var) (eval var)))
-	 (regexp (format "^[^;]*%s[ \t\n]*[a-zA-Z---_']*[ \t\n)]" var-name))
+	 (regexp (format "^[^;]*%s[ \t\n]*[a-zA-Z0-9---_']*[ \t\n)]" var-name))
 	 (buf (find-file-noselect (substitute-in-file-name file)))
 	)
     (message "%s" (or message ""))
@@ -785,14 +778,11 @@ Otherwise return the normal value."
 (defun viper-check-minibuffer-overlay ()
   (if (overlayp viper-minibuffer-overlay)
       (move-overlay
-       viper-minibuffer-overlay
-       (if (fboundp 'minibuffer-prompt-end) (minibuffer-prompt-end) 1)
-       (1+ (buffer-size)))
+       viper-minibuffer-overlay (minibuffer-prompt-end) (1+ (buffer-size)))
     (setq viper-minibuffer-overlay
 	  ;; make overlay open-ended
 	  (make-overlay
-	   (if (fboundp 'minibuffer-prompt-end) (minibuffer-prompt-end) 1)
-	   (1+ (buffer-size))
+	   (minibuffer-prompt-end) (1+ (buffer-size))
 	   (current-buffer) nil 'rear-advance))))
 
 
@@ -807,9 +797,8 @@ Otherwise return the normal value."
 (define-obsolete-function-alias 'viper-abbreviate-file-name
   'abbreviate-file-name "27.1")
 
-;; Sit for VAL milliseconds.  XEmacs doesn't support the millisecond arg
-;; in sit-for, so this function smooths out the differences.
 (defsubst viper-sit-for-short (val &optional nodisp)
+  (declare (obsolete nil "28.1"))
   (sit-for (/ val 1000.0) nodisp))
 
 ;; EVENT may be a single event of a sequence of events
@@ -867,11 +856,10 @@ Otherwise return the normal value."
 
 ;; Uses different timeouts for ESC-sequences and others
 (defun viper-fast-keysequence-p ()
-  (not (viper-sit-for-short
-	(if (viper-ESC-event-p last-input-event)
-	    (viper-ESC-keyseq-timeout)
-	  viper-fast-keyseq-timeout)
-	t)))
+  (not (sit-for (/ (if (viper-ESC-event-p last-input-event)
+	               (viper-ESC-keyseq-timeout)
+	             viper-fast-keyseq-timeout) 1000.0)
+	        t)))
 
 (define-obsolete-function-alias 'viper-read-event-convert-to-char
   'read-event "27.1")
@@ -919,6 +907,7 @@ Otherwise return the normal value."
       basis)))
 
 (defun viper-last-command-char ()
+  (declare (obsolete nil "28.1"))
   last-command-event)
 
 (defun viper-key-to-emacs-key (key)
@@ -1096,10 +1085,10 @@ the `Local variables' section of a file."
 ;; These are characters that are not to be considered as parts of a word in
 ;; Viper.
 ;; Set each time state changes and at loading time
-(viper-deflocalvar viper-non-word-characters  nil)
+(defvar-local viper-non-word-characters nil)
 
 ;; must be buffer-local
-(viper-deflocalvar viper-ALPHA-char-class "w"
+(defvar-local viper-ALPHA-char-class "w"
   "String of syntax classes characterizing Viper's alphanumeric symbols.
 In addition, the symbol `_' may be considered alphanumeric if
 `viper-syntax-preference' is `strict-vi' or `reformed-vi'.")
@@ -1385,11 +1374,5 @@ This option is appropriate if you like Emacs-style words."
 		 (aset res i (aref seq start))
 		 (setq i (1+ i) start (1+ start)))
 	       res))))))
-
-
-
-;; Local Variables:
-;; eval: (put 'viper-deflocalvar 'lisp-indent-hook 'defun)
-;; End:
 
 ;;; viper-util.el ends here

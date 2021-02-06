@@ -26,8 +26,7 @@
 
 ;;; Commentary:
 ;;
-;; This mode is for IDL version 5 or later.  It should work on
-;; Emacs>20.3 or XEmacs>20.4.
+;; This mode is for IDL version 5 or later.
 ;;
 ;; Runs IDL as an inferior process of Emacs, much like the Emacs
 ;; `shell' or `telnet' commands.  Provides command history and
@@ -40,7 +39,7 @@
 ;;
 ;; New versions of IDLWAVE, documentation, and more information
 ;; available from:
-;;                 http://github.com/jdtsmith/idlwave
+;;                 https://github.com/jdtsmith/idlwave
 ;;
 ;; INSTALLATION:
 ;; =============
@@ -58,7 +57,7 @@
 ;;   The newest version of this file can be found on the maintainers
 ;;   web site.
 ;;
-;;     http://github.com/jdtsmith/idlwave
+;;     https://github.com/jdtsmith/idlwave
 ;;
 ;; DOCUMENTATION
 ;; =============
@@ -66,15 +65,6 @@
 ;; IDLWAVE is documented online in info format.
 ;; A printable version of the documentation is available from the
 ;; maintainers webpage (see under SOURCE)
-;;
-;;
-;; KNOWN PROBLEMS
-;; ==============
-;;
-;; Under XEmacs the Debug menu in the shell does not display the
-;; keybindings in the prefix map.  There bindings are available anyway - so
-;; it is a bug in XEmacs.
-;; The Debug menu in source buffers *does* display the bindings correctly.
 ;;
 ;;
 ;; CUSTOMIZATION VARIABLES
@@ -166,7 +156,6 @@ t          Arrows force the cursor back to the current command line and
   "Non-nil means, use the debugging toolbar in all IDL related buffers.
 Starting the shell will then add the toolbar to all idlwave-mode buffers.
 Exiting the shell will removed everywhere.
-Available on XEmacs and on Emacs 21.x or later.
 At any time you can toggle the display of the toolbar with
 `C-c C-d C-t' (`idlwave-shell-toggle-toolbar')."
   :group 'idlwave-shell-general-setup
@@ -606,12 +595,6 @@ the directory stack.")
 (defvar idlwave-shell-last-save-and-action-file nil
   "The last file which was compiled with `idlwave-shell-save-and-...'.")
 
-;; Highlighting uses overlays.  When necessary, require the emulation.
-(if (not (fboundp 'make-overlay))
-    (condition-case nil
-	(require 'overlay)
-      (error nil)))
-
 (defvar idlwave-shell-stop-line-overlay nil
   "The overlay for where IDL is currently stopped.")
 (defvar idlwave-shell-is-stopped nil)
@@ -896,7 +879,7 @@ IDL has currently stepped.")
    Info documentation for this package is available.  Use \\[idlwave-info]
    to display (complain to your sysadmin if that does not work).
    For PostScript and HTML versions of the documentation, check IDLWAVE's
-   homepage at URL `http://github.com/jdtsmith/idlwave'.
+   homepage at URL `https://github.com/jdtsmith/idlwave'.
    IDLWAVE has customize support - see the group `idlwave'.
 
 8. Keybindings
@@ -967,13 +950,10 @@ IDL has currently stepped.")
   (setq idlwave-shell-default-directory default-directory)
   (setq idlwave-shell-hide-output nil)
 
-  ;; NB: `make-local-hook' needed for older/alternative Emacs compatibility
-  ;; (make-local-hook 'kill-buffer-hook)
   (add-hook 'kill-buffer-hook 'idlwave-shell-kill-shell-buffer-confirm
 	    nil 'local)
   (add-hook 'kill-buffer-hook 'idlwave-shell-delete-temp-files nil 'local)
   (add-hook 'kill-emacs-hook 'idlwave-shell-delete-temp-files)
-  (easy-menu-add idlwave-shell-mode-menu idlwave-shell-mode-map)
 
   ;; Set the optional comint variables
   (when idlwave-shell-comint-settings
@@ -1007,8 +987,6 @@ IDL has currently stepped.")
   (set (make-local-variable 'comment-start) ";")
   (setq abbrev-mode t)
 
-  ;; NB: `make-local-hook' needed for older/alternative Emacs compatibility
-  ;; make-local-hook 'post-command-hook)
   (add-hook 'post-command-hook 'idlwave-command-hook nil t)
 
   ;; Read the command history?
@@ -1598,7 +1576,7 @@ number.")
   "A regular expression to match any IDL error.")
 
 (defvar idlwave-shell-halting-error
-  "^% .*\n\\([^%].*\n\\)*% Execution halted at:\\(\\s-*\\S-+\\s-*[0-9]+\\s-*.*\\)\n"
+  "^% .*\n\\([^%].*\n\\)*% Execution halted at:\\(\\s-*\\S-+\\s-*[0-9]+.*\\)\n"
   "A regular expression to match errors which halt execution.")
 
 (defvar idlwave-shell-cant-continue-error
@@ -2640,7 +2618,7 @@ Assumes that `idlwave-shell-sources-alist' contains an entry for that module."
     (if (or (not source-file)
 	    (not (file-regular-p source-file))
 	    (not (setq buf
-		       (or (idlwave-get-buffer-visiting source-file)
+                       (or (find-buffer-visiting source-file)
 			   (find-file-noselect source-file)))))
 	(progn
 	  (message "The source file for module %s is probably not compiled"
@@ -2745,12 +2723,13 @@ Runs to the last statement and then steps 1 statement.  Use the .out command."
 	     ;; event.  mouse-drag-track does so.
 	     (if drag-track 'mouse-drag-track 'mouse-drag-region)))
        (funcall tracker event)
-       (idlwave-shell-print (if (idlwave-region-active-p) '(4) nil)
+       (idlwave-shell-print (if (region-active-p) '(4) nil)
 			    ,help ,ev))))
 
 ;; Begin terrible hack section -- XEmacs tests for button2 explicitly
 ;; on drag events, calling drag-n-drop code if detected.  Ughhh...
 (defun idlwave-default-mouse-track-event-is-with-button (_event _n)
+  (declare (obsolete nil "28.1"))
   t)
 
 (define-obsolete-function-alias 'idlwave-xemacs-hack-mouse-track 'ignore "27.1")
@@ -2830,7 +2809,7 @@ from `idlwave-shell-examine-alist' via mini-buffer shortcut key."
       (cond
        ((equal arg '(16))
 	(setq expr (read-string "Expression: ")))
-       ((and (or arg (idlwave-region-active-p))
+       ((and (or arg (region-active-p))
 	     (< (- (region-end) (region-beginning)) 2000))
 	(setq beg (region-beginning)
 	      end (region-end)))
@@ -3241,8 +3220,7 @@ Does not work for a region with multiline blocks - use
   "Delete the temporary files and kill associated buffers."
   (if (stringp idlwave-shell-temp-pro-file)
       (condition-case nil
-	  (let ((buf (idlwave-get-buffer-visiting
-		      idlwave-shell-temp-pro-file)))
+          (let ((buf (find-buffer-visiting idlwave-shell-temp-pro-file)))
 	    (if (buffer-live-p buf)
 		(kill-buffer buf))
 	    (delete-file idlwave-shell-temp-pro-file))
@@ -3613,10 +3591,8 @@ Existing overlays are recycled, in order to minimize consumption."
 	  (when use-glyph
 	    (if old-buffers
 		(setq old-buffers (delq (current-buffer) old-buffers)))
-	    (if (fboundp 'set-specifier) ;; XEmacs
-		(set-specifier left-margin-width (cons (current-buffer) 2))
-	      (if (< left-margin-width 2)
-		  (setq left-margin-width 2)))
+            (if (< left-margin-width 2)
+                (setq left-margin-width 2))
 	    (let ((window (get-buffer-window (current-buffer) 0)))
 	      (if window
 		  (set-window-margins
@@ -3624,9 +3600,7 @@ Existing overlays are recycled, in order to minimize consumption."
       (if use-glyph
 	  (while (setq buf (pop old-buffers))
 	    (with-current-buffer buf
-	      (if (fboundp 'set-specifier) ;; XEmacs
-		  (set-specifier left-margin-width (cons (current-buffer) 0))
-		(setq left-margin-width 0))
+              (setq left-margin-width 0)
 	      (let ((window (get-buffer-window buf 0)))
 		(if window
 		    (set-window-margins
@@ -3788,7 +3762,7 @@ handled by this command."
       (save-buffer)
       (setq idlwave-shell-last-save-and-action-file (buffer-file-name)))
      (idlwave-shell-last-save-and-action-file
-      (if (setq buf (idlwave-get-buffer-visiting
+      (if (setq buf (find-buffer-visiting
 		     idlwave-shell-last-save-and-action-file))
 	  (with-current-buffer buf
 	    (save-buffer))))
@@ -4353,21 +4327,12 @@ Shell debugging commands are available as single key sequences."
     ["Toggle Toolbar" idlwave-shell-toggle-toolbar t]
     ["Exit IDL" idlwave-shell-quit t]))
 
-(if (or (featurep 'easymenu) (load "easymenu" t))
-    (progn
-      (easy-menu-define
-       idlwave-mode-debug-menu idlwave-mode-map "IDL debugging menus"
-       idlwave-shell-menu-def)
-      (easy-menu-define
-       idlwave-shell-mode-menu idlwave-shell-mode-map "IDL shell menus"
-       idlwave-shell-menu-def)
-      (save-current-buffer
-	(dolist (buf (buffer-list))
-          (set-buffer buf)
-          (if (derived-mode-p 'idlwave-mode)
-              (progn
-                (easy-menu-remove idlwave-mode-debug-menu)
-                (easy-menu-add idlwave-mode-debug-menu)))))))
+(easy-menu-define
+  idlwave-mode-debug-menu idlwave-mode-map "IDL debugging menus"
+  idlwave-shell-menu-def)
+(easy-menu-define
+  idlwave-shell-mode-menu idlwave-shell-mode-map "IDL shell menus"
+  idlwave-shell-menu-def)
 
 ;; The Breakpoint Glyph -------------------------------------------------------
 

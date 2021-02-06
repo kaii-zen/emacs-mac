@@ -290,12 +290,12 @@ otherwise t.")
 
 (defun eshell-cmd-initialize ()     ;Called from `eshell-mode' via intern-soft!
   "Initialize the Eshell command processing module."
-  (set (make-local-variable 'eshell-current-command) nil)
-  (set (make-local-variable 'eshell-command-name) nil)
-  (set (make-local-variable 'eshell-command-arguments) nil)
-  (set (make-local-variable 'eshell-last-arguments) nil)
-  (set (make-local-variable 'eshell-last-command-name) nil)
-  (set (make-local-variable 'eshell-last-async-proc) nil)
+  (setq-local eshell-current-command nil)
+  (setq-local eshell-command-name nil)
+  (setq-local eshell-command-arguments nil)
+  (setq-local eshell-last-arguments nil)
+  (setq-local eshell-last-command-name nil)
+  (setq-local eshell-last-async-proc nil)
 
   (add-hook 'eshell-kill-hook #'eshell-resume-command nil t)
 
@@ -304,10 +304,9 @@ otherwise t.")
   ;; situation can occur, for example, if a Lisp function results in
   ;; `debug' being called, and the user then types \\[top-level]
   (add-hook 'eshell-post-command-hook
-	    (function
-	     (lambda ()
-	       (setq eshell-current-command nil
-		     eshell-last-async-proc nil)))
+            (lambda ()
+              (setq eshell-current-command nil
+                    eshell-last-async-proc nil))
             nil t)
 
   (add-hook 'eshell-parse-argument-hook
@@ -355,18 +354,17 @@ hooks should be run before and after the command."
 	   args))
 	 (commands
 	  (mapcar
-	   (function
-	    (lambda (cmd)
-              (setq cmd
-                    (if (or (not (car eshell--sep-terms))
-                            (string= (car eshell--sep-terms) ";"))
-			(eshell-parse-pipeline cmd)
-		      `(eshell-do-subjob
-                        (list ,(eshell-parse-pipeline cmd)))))
-	      (setq eshell--sep-terms (cdr eshell--sep-terms))
-	      (if eshell-in-pipeline-p
-		  cmd
-		`(eshell-trap-errors ,cmd))))
+           (lambda (cmd)
+             (setq cmd
+                   (if (or (not (car eshell--sep-terms))
+                           (string= (car eshell--sep-terms) ";"))
+                       (eshell-parse-pipeline cmd)
+                     `(eshell-do-subjob
+                       (list ,(eshell-parse-pipeline cmd)))))
+             (setq eshell--sep-terms (cdr eshell--sep-terms))
+             (if eshell-in-pipeline-p
+                 cmd
+               `(eshell-trap-errors ,cmd)))
 	   (eshell-separate-commands terms "[&;]" nil 'eshell--sep-terms))))
     (let ((cmd commands))
       (while cmd
@@ -920,7 +918,7 @@ at the moment are:
 		       (funcall pred name))
 		  (throw 'simple nil)))
 	    t))
-	 (fboundp (intern-soft (concat "eshell/" name))))))
+	 (eshell-find-alias-function name))))
 
 (defun eshell-eval-command (command &optional input)
   "Evaluate the given COMMAND iteratively."
@@ -1003,7 +1001,7 @@ be finished later after the completion of an asynchronous subprocess."
     ;; expand any macros directly into the form.  This is done so that
     ;; we can modify any `let' forms to evaluate only once.
     (if (macrop (car form))
-	(let ((exp (eshell-copy-tree (macroexpand form))))
+        (let ((exp (copy-tree (macroexpand form))))
 	  (eshell-manipulate (format-message "expanding macro `%s'"
 					     (symbol-name (car form)))
 	    (setcar form (car exp))
@@ -1011,7 +1009,7 @@ be finished later after the completion of an asynchronous subprocess."
     (let ((args (cdr form)))
       (cond
        ((eq (car form) 'while)
-	;; `eshell-copy-tree' is needed here so that the test argument
+        ;; `copy-tree' is needed here so that the test argument
 	;; doesn't get modified and thus always yield the same result.
 	(when (car eshell-command-body)
 	  (cl-assert (not synchronous-p))
@@ -1019,27 +1017,27 @@ be finished later after the completion of an asynchronous subprocess."
 	  (setcar eshell-command-body nil)
 	  (setcar eshell-test-body nil))
 	(unless (car eshell-test-body)
-	  (setcar eshell-test-body (eshell-copy-tree (car args))))
+          (setcar eshell-test-body (copy-tree (car args))))
 	(while (cadr (eshell-do-eval (car eshell-test-body)))
 	  (setcar eshell-command-body
                   (if (cddr args)
-                      `(progn ,@(eshell-copy-tree (cdr args)))
-                    (eshell-copy-tree (cadr args))))
+                      `(progn ,@(copy-tree (cdr args)))
+                    (copy-tree (cadr args))))
 	  (eshell-do-eval (car eshell-command-body) synchronous-p)
 	  (setcar eshell-command-body nil)
-	  (setcar eshell-test-body (eshell-copy-tree (car args))))
+          (setcar eshell-test-body (copy-tree (car args))))
 	(setcar eshell-command-body nil))
        ((eq (car form) 'if)
-	;; `eshell-copy-tree' is needed here so that the test argument
+        ;; `copy-tree' is needed here so that the test argument
 	;; doesn't get modified and thus always yield the same result.
 	(if (car eshell-command-body)
 	    (progn
 	      (cl-assert (not synchronous-p))
 	      (eshell-do-eval (car eshell-command-body)))
 	  (unless (car eshell-test-body)
-	    (setcar eshell-test-body (eshell-copy-tree (car args))))
+            (setcar eshell-test-body (copy-tree (car args))))
 	  (setcar eshell-command-body
-                  (eshell-copy-tree
+                  (copy-tree
                    (if (cadr (eshell-do-eval (car eshell-test-body)))
                        (cadr args)
                      (car (cddr args)))))

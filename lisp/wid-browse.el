@@ -28,7 +28,6 @@
 ;;; Code:
 
 (require 'easymenu)
-(require 'custom)
 (require 'wid-edit)
 
 (defgroup widget-browse nil
@@ -77,8 +76,6 @@ if that value is non-nil."
   (setq major-mode 'widget-browse-mode
 	mode-name "Widget")
   (use-local-map widget-browse-mode-map)
-  (easy-menu-add widget-browse-mode-customize-menu)
-  (easy-menu-add widget-browse-mode-menu)
   (run-mode-hooks 'widget-browse-mode-hook))
 
 (put 'widget-browse-mode 'mode-class 'special)
@@ -187,7 +184,7 @@ if that value is non-nil."
 
 (define-widget 'widget-browse 'push-button
   "Button for creating a widget browser.
-The :value of the widget shuld be the widget to be browsed."
+The :value of the widget should be the widget to be browsed."
   :format "%[[%v]%]"
   :value-create 'widget-browse-value-create
   :action 'widget-browse-action)

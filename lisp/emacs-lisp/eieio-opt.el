@@ -1,4 +1,4 @@
-;;; eieio-opt.el -- eieio optional functions (debug, printing, speedbar)
+;;; eieio-opt.el -- eieio optional functions (debug, printing, speedbar)  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1996, 1998-2003, 2005, 2008-2021 Free Software
 ;; Foundation, Inc.
@@ -136,9 +136,9 @@ are not abstract."
 	  (def (symbol-function ctr)))
       (goto-char (point-min))
       (prin1 ctr)
-      (insert (format " is an %s object constructor function"
+      (insert (format " is an %sobject constructor function"
 		      (if (autoloadp def)
-			  "autoloaded"
+			  "autoloaded "
 			"")))
       (when (and (autoloadp def)
 		 (null location))
@@ -278,14 +278,7 @@ are not abstract."
 
 (if eieio-class-speedbar-key-map
     nil
-  (if (not (featurep 'speedbar))
-      (add-hook 'speedbar-load-hook (lambda ()
-				      (eieio-class-speedbar-make-map)
-				      (speedbar-add-expansion-list
-				       '("EIEIO"
-					 eieio-class-speedbar-menu
-					 eieio-class-speedbar-key-map
-					 eieio-class-speedbar))))
+  (with-eval-after-load 'speedbar
     (eieio-class-speedbar-make-map)
     (speedbar-add-expansion-list '("EIEIO"
 				   eieio-class-speedbar-menu

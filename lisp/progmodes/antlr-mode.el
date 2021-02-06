@@ -52,7 +52,7 @@
 ;;
 ;;  * Probably.  Show rules/dependencies for ANT like for Makefile (does ANT
 ;;    support vocabularies and grammar inheritance?), I have to look at
-;;    jde-ant.el: http://jakarta.apache.org/ant/manual/OptionalTasks/antlr.html
+;;    jde-ant.el: https://jakarta.apache.org/ant/manual/OptionalTasks/antlr.html
 ;;  * Probably.  Make `indent-region' faster, especially in actions.  ELP
 ;;    profiling in a class init action shows half the time is spent in
 ;;    `antlr-next-rule', the other half in `c-guess-basic-syntax'.
@@ -75,8 +75,8 @@
 ;;   (add-hook 'speedbar-load-hook  ; would be too late in antlr-mode.el
 ;;	       (lambda () (speedbar-add-supported-extension ".g")))
 
-;; I strongly recommend to use font-lock with a support mode like fast-lock,
-;; lazy-lock or better jit-lock (Emacs-21.1+) / lazy-shot (XEmacs).
+;; I strongly recommend to use font-lock with a support mode like
+;; jit-lock (Emacs) / lazy-shot (XEmacs).
 
 ;; To customize, use menu item "Antlr" -> "Customize Antlr".
 
@@ -695,7 +695,7 @@ imenu."
     (define-key map "\e\C-e" 'antlr-end-of-rule)
     (define-key map "\C-c\C-a" 'antlr-beginning-of-body)
     (define-key map "\C-c\C-e" 'antlr-end-of-body)
-    (define-key map "\C-c\C-f" 'c-forward-into-nomenclature)
+    (define-key map "\C-c\C-f" 'subword-forward)
     (define-key map "\C-c\C-b" 'c-backward-into-nomenclature)
     (define-key map "\C-c\C-c" 'comment-region)
     (define-key map "\C-c\C-v" 'antlr-hide-actions)
@@ -720,9 +720,8 @@ imenu."
   "Major mode menu."
   `("Antlr"
     ,@(if (cond-emacs-xemacs
-	   :EMACS (and antlr-options-use-submenus
-		       (>= emacs-major-version 21))
-	   :XEMACS antlr-options-use-submenus)
+           :EMACS antlr-options-use-submenus
+           :XEMACS antlr-options-use-submenus)
 	  `(("Insert File Option"
 	     :filter ,(lambda (x) (antlr-options-menu-filter 1 x)))
 	    ("Insert Grammar Option"
@@ -745,7 +744,7 @@ imenu."
      ["Backward Statement" c-beginning-of-statement t]
      ["Forward Statement" c-end-of-statement t]
      ["Backward Into Nomencl." c-backward-into-nomenclature t]
-     ["Forward Into Nomencl." c-forward-into-nomenclature t])
+     ["Forward Into Nomencl." subword-forward t])
     ["Indent Region" indent-region
      :active (and (not buffer-read-only) (c-region-is-active-p))]
     ["Comment Out Region" comment-region
@@ -2048,7 +2047,7 @@ Called in PHASE `after-insertion', see `antlr-options-alists'."
     (let ((new-language (antlr-language-option t)))
       (or (null new-language)
 	  (eq new-language antlr-language)
-	  (let ((font-lock (and (boundp 'font-lock-mode) font-lock-mode)))
+          (let ((font-lock font-lock-mode))
 	    (if font-lock (font-lock-mode 0))
 	    (antlr-mode)
 	    (and font-lock (null font-lock-mode) (font-lock-mode 1)))))))
@@ -2593,7 +2592,8 @@ the default language."
 	comment-start-skip "/\\*+ *\\|// *")
   ;; various -----------------------------------------------------------------
   (set (make-local-variable 'font-lock-defaults) antlr-font-lock-defaults)
-  (easy-menu-add antlr-mode-menu)
+  (when (featurep 'xemacs)
+    (easy-menu-add antlr-mode-menu))
   (set (make-local-variable 'imenu-create-index-function)
        'antlr-imenu-create-index-function)
   (set (make-local-variable 'imenu-generic-expression) t) ; fool stupid test

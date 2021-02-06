@@ -4,18 +4,20 @@
 
 ;; Author: Artur Malabarba <bruce.connor.am@gmail.com>
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Code:
 
@@ -37,6 +39,13 @@
      (save-excursion (insert " c d)"))
      ,@body
      (with-no-warnings (simple-test--buffer-substrings))))
+
+
+;;; `count-words'
+(ert-deftest simple-test-count-words-bug-41761 ()
+  (with-temp-buffer
+    (dotimes (_i 10) (insert (propertize "test " 'field (cons nil nil))))
+    (should (= (count-words (point-min) (point-max)) 10))))
 
 
 ;;; `transpose-sexps'
@@ -392,6 +401,48 @@ See bug#35036."
       (should (equal ?\s (char-syntax ?\n))))))
 
 
+;;; undo tests
+
+(defun simple-tests--exec (cmds)
+  (dolist (cmd cmds)
+    (setq last-command this-command)
+    (setq this-command cmd)
+    (run-hooks 'pre-command-hook)
+    (command-execute cmd)
+    (run-hooks 'post-command-hook)
+    (undo-boundary)))
+
+(ert-deftest simple-tests--undo ()
+  (with-temp-buffer
+    (buffer-enable-undo)
+    (dolist (x '("a" "b" "c" "d" "e"))
+      (insert x)
+      (undo-boundary))
+    (should (equal (buffer-string) "abcde"))
+    (simple-tests--exec '(undo undo))
+    (should (equal (buffer-string) "abc"))
+    (simple-tests--exec '(backward-char undo))
+    (should (equal (buffer-string) "abcd"))
+    (simple-tests--exec '(undo))
+    (should (equal (buffer-string) "abcde"))
+    (simple-tests--exec '(backward-char undo undo))
+    (should (equal (buffer-string) "abc"))
+    (simple-tests--exec '(backward-char undo-redo))
+    (should (equal (buffer-string) "abcd"))
+    (simple-tests--exec '(undo))
+    (should (equal (buffer-string) "abc"))
+    (simple-tests--exec '(backward-char undo-redo undo-redo))
+    (should (equal (buffer-string) "abcde"))
+    (simple-tests--exec '(undo undo))
+    (should (equal (buffer-string) "abc"))
+    (simple-tests--exec '(backward-char undo-only undo-only))
+    (should (equal (buffer-string) "a"))
+    (simple-tests--exec '(backward-char undo-redo undo-redo))
+    (should (equal (buffer-string) "abc"))
+    (simple-tests--exec '(backward-char undo-redo undo-redo))
+    (should (equal (buffer-string) "abcde"))
+    ))
+
 ;;; undo auto-boundary tests
 (ert-deftest undo-auto-boundary-timer ()
   (should
@@ -427,7 +478,7 @@ See bug#35036."
   (with-temp-buffer
     (switch-to-buffer (current-buffer))
     (setq buffer-undo-list nil)
-    (insert "a\nb\n\c\n")
+    (insert "a\nb\nc\n")
     (goto-char (point-max))
     ;; We use a keyboard macro because it adds undo events in the same
     ;; way as if a user were involved.

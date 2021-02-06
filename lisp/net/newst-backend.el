@@ -34,7 +34,6 @@
 ;; ======================================================================
 ;;; Code:
 
-(require 'derived)
 (require 'xml)
 (require 'url-parse)
 (require 'iso8601)
@@ -68,9 +67,6 @@ considered to be running if the newsticker timer list is not empty."
 ;; Hard-coding URLs like this is a recipe for propagating obsolete info.
 (defconst newsticker--raw-url-list-defaults
   '(
-    ;; 2017/12: no response.
-;;;    ("CNET News.com"
-;;;     "http://export.cnet.com/export/feeds/news/rss/1,11176,,00.xml")
     ("Debian Security Advisories"
     "http://www.debian.org/security/dsa.en.rdf")
     ("Debian Security Advisories - Long format"
@@ -81,11 +77,6 @@ considered to be running if the newsticker timer list is not empty."
     3600)
     ("LWN (Linux Weekly News)"
     "https://lwn.net/headlines/rss")
-    ;; Not updated since 2010.
-;;;    ("NY Times: Technology"
-;;;    "http://www.nytimes.com/services/xml/rss/userland/Technology.xml")
-;;;    ("NY Times"
-;;;    "http://www.nytimes.com/services/xml/rss/userland/HomePage.xml")
     ("Quote of the day"
     "http://feeds.feedburner.com/quotationspage/qotd"
     "07:00"
@@ -363,7 +354,7 @@ description are marked as immortal."
                                (const :tag "Title" title)
                                (const :tag "Description" description)
                                (const :tag "All" all))
-                              (string :tag "Regexp")))))
+                              (regexp :tag "Regexp")))))
   :group 'newsticker-headline-processing)
 
 ;; ======================================================================
@@ -898,7 +889,7 @@ Argument BUFFER is the buffer of the retrieval process."
                   ;; Atom 1.0 feed.
 
                   ;; (and (eq 'feed (xml-node-name topnode))
-                  ;;      (string= "http://www.w3.org/2005/Atom"
+                  ;;      (string= "https://www.w3.org/2005/Atom"
                   ;;               (xml-get-attribute topnode 'xmlns)))
                   (setq image-url (newsticker--get-logo-url-atom-1.0 topnode))
                   (setq icon-url (newsticker--get-icon-url-atom-1.0 topnode))

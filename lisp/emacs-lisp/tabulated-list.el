@@ -269,42 +269,48 @@ Populated by `tabulated-list-init-header'.")
   ;; FIXME: Should share code with tabulated-list-print-col!
   (let ((x (max tabulated-list-padding 0))
 	(button-props `(help-echo "Click to sort by column"
-			mouse-face header-line-highlight
-			keymap ,tabulated-list-sort-button-map))
+			          mouse-face header-line-highlight
+			          keymap ,tabulated-list-sort-button-map))
+        (len (length tabulated-list-format))
 	(cols nil))
     (if display-line-numbers
         (setq x (+ x (tabulated-list-line-number-width))))
     (push (propertize " " 'display `(space :align-to ,x)) cols)
-    (dotimes (n (length tabulated-list-format))
+    (dotimes (n len)
       (let* ((col (aref tabulated-list-format n))
+             (not-last-col (< n (1- len)))
 	     (label (nth 0 col))
+             (lablen (length label))
+             (pname label)
 	     (width (nth 1 col))
 	     (props (nthcdr 3 col))
 	     (pad-right (or (plist-get props :pad-right) 1))
              (right-align (plist-get props :right-align))
              (next-x (+ x pad-right width)))
+        (when (and (>= lablen 3) (> lablen width) not-last-col)
+          (setq label (truncate-string-to-width label (- lablen 1) nil nil t)))
 	(push
 	 (cond
 	  ;; An unsortable column
 	  ((not (nth 2 col))
-	   (propertize label 'tabulated-list-column-name label))
+	   (propertize label 'tabulated-list-column-name pname))
 	  ;; The selected sort column
 	  ((equal (car col) (car tabulated-list-sort-key))
 	   (apply 'propertize
-		  (concat label
-			  (cond
-			   ((> (+ 2 (length label)) width) "")
-			   ((cdr tabulated-list-sort-key)
+                  (concat label
+                          (cond
+                           ((and (< lablen 3) not-last-col) "")
+                           ((cdr tabulated-list-sort-key)
                             (format " %c"
                                     tabulated-list-gui-sort-indicator-desc))
-			   (t (format " %c"
+                           (t (format " %c"
                                       tabulated-list-gui-sort-indicator-asc))))
-		  'face 'bold
-		  'tabulated-list-column-name label
-		  button-props))
+                  'face 'bold
+                  'tabulated-list-column-name pname
+                  button-props))
 	  ;; Unselected sortable column.
 	  (t (apply 'propertize label
-		    'tabulated-list-column-name label
+		    'tabulated-list-column-name pname
 		    button-props)))
 	 cols)
         (when right-align
@@ -547,10 +553,10 @@ Return the column number after insertion."
     ;; Don't truncate to `width' if the next column is align-right
     ;; and has some space left, truncate to `available-space' instead.
     (when (and not-last-col
-               (> label-width available-space)
-               (setq label (truncate-string-to-width
-                            label available-space nil nil t t)
-                     label-width available-space)))
+	       (> label-width available-space))
+      (setq label (truncate-string-to-width
+		   label available-space nil nil t t)
+	    label-width available-space))
     (setq label (bidi-string-mark-left-to-right label))
     (when (and right-align (> width label-width))
       (let ((shift (- width label-width)))
@@ -761,6 +767,7 @@ as the ewoc pretty-printer."
   (setq-local revert-buffer-function #'tabulated-list-revert)
   (setq-local glyphless-char-display
               (tabulated-list-make-glyphless-char-display-table))
+  (setq-local text-scale-remap-header-line t)
   ;; Avoid messing up the entries' display just because the first
   ;; column of the first entry happens to begin with a R2L letter.
   (setq bidi-paragraph-direction 'left-to-right)

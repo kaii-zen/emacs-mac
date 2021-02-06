@@ -1,28 +1,33 @@
-;;; completion-tests.el --- Tests for completion functions  -*- lexical-binding: t; -*-
+;;; minibuffer-tests.el --- Tests for completion functions  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords:
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
 ;;
 
 ;;; Code:
+
+(require 'ert)
+(require 'ert-x)
 
 (eval-when-compile (require 'cl-lib))
 
@@ -83,7 +88,7 @@
 (ert-deftest completion-table-test-quoting ()
   (let ((process-environment
          `("CTTQ1=ed" "CTTQ2=et/" ,@process-environment))
-        (default-directory (expand-file-name "test" source-directory)))
+        (default-directory (ert-resource-directory)))
     (pcase-dolist (`(,input ,output)
                    '(
                      ;; Test that $ in files is properly $$ quoted.
@@ -102,5 +107,23 @@
                                                 nil (length input))
                      (cons output (length output)))))))
 
-(provide 'completion-tests)
-;;; completion-tests.el ends here
+(ert-deftest completion--insert-strings-faces ()
+  (with-temp-buffer
+    (completion--insert-strings
+     '(("completion1" "suffix1")))
+    (should (equal (get-text-property 12 'face) '(completions-annotations))))
+  (with-temp-buffer
+    (completion--insert-strings
+     '(("completion1" #("suffix1" 0 7 (face shadow)))))
+    (should (equal (get-text-property 12 'face) 'shadow)))
+  (with-temp-buffer
+    (completion--insert-strings
+     '(("completion1" "prefix1" "suffix1")))
+    (should (equal (get-text-property 19 'face) nil)))
+  (with-temp-buffer
+    (completion--insert-strings
+     '(("completion1" "prefix1" #("suffix1" 0 7 (face shadow)))))
+    (should (equal (get-text-property 19 'face) 'shadow))))
+
+(provide 'minibuffer-tests)
+;;; minibuffer-tests.el ends here
