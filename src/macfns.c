@@ -1381,13 +1381,10 @@ mac_set_mouse_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
   for (i = 0; i < mouse_cursor_max; i++)
     {
       Lisp_Object shape_var = *mouse_cursor_types[i].shape_var_ptr;
-      if (!NILP (shape_var))
-	{
-	  CHECK_TYPE_RANGED_INTEGER (unsigned, shape_var);
-	  shapes[i] = XFIXNUM (shape_var);
-	}
-      else
-	shapes[i] = mouse_cursor_types[i].default_shape;
+      shapes[i]
+	= (!NILP (shape_var)
+	   ? check_uinteger_max (shape_var, UINT_MAX)
+	   : mouse_cursor_types[i].default_shape);
     }
 
   block_input ();
@@ -1739,10 +1736,7 @@ mac_change_tool_bar_height (struct frame *f, int height)
 static void
 mac_set_internal_border_width (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
 {
-  int border;
-
-  CHECK_TYPE_RANGED_INTEGER (int, arg);
-  border = max (XFIXNUM (arg), 0);
+  int border = check_integer_range(arg, INT_MIN, INT_MAX);
 
   if (border != FRAME_INTERNAL_BORDER_WIDTH (f))
     {
@@ -3333,8 +3327,8 @@ The coordinates X and Y are interpreted in pixels relative to a position
   if (FRAME_INITIAL_P (f) || !FRAME_MAC_P (f))
     return Qnil;
 
-  CHECK_TYPE_RANGED_INTEGER (int, x);
-  CHECK_TYPE_RANGED_INTEGER (int, y);
+  check_integer_range(x, INT_MIN, INT_MAX);
+  check_integer_range(y, INT_MIN, INT_MAX);
 
   block_input ();
   CGWarpMouseCursorPosition (CGPointMake (XFIXNUM (x), XFIXNUM (y)));
@@ -4083,7 +4077,7 @@ Text larger than the specified size is clipped.  */)
 
   tip_f = XFRAME (tip_frame);
   window = FRAME_ROOT_WINDOW (tip_f);
-  tip_buf = Fget_buffer_create (tip);
+  tip_buf = Fget_buffer_create (tip, Qnil);
   /* We will mark the tip window a "pseudo-window" below, and such
      windows cannot have display margins.  */
   bset_left_margin_cols (XBUFFER (tip_buf), make_fixnum (0));

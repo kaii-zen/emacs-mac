@@ -10066,7 +10066,7 @@ update_frame_tool_bar (struct frame *f)
 
 	      if (use_multiimage_icons_p)
 		FRAME_BACKING_SCALE_FACTOR (f) = 1;
-	      img_id = lookup_image (f, image);
+	      img_id = lookup_image (f, image, -1);
 	      if (use_multiimage_icons_p)
 		[frameController updateBackingScaleFactor];
 	      img = IMAGE_FROM_ID (f, img_id);
@@ -10090,7 +10090,7 @@ update_frame_tool_bar (struct frame *f)
 		  CGImageRef cg_image = img->cg_image;
 
 		  FRAME_BACKING_SCALE_FACTOR (f) = 2;
-		  img_id = lookup_image (f, image);
+		  img_id = lookup_image (f, image, -1);
 		  [frameController updateBackingScaleFactor];
 		  img = IMAGE_FROM_ID (f, img_id);
 		  prepare_image_for_display (f, img);
@@ -11805,7 +11805,7 @@ mac_activate_menubar (struct frame *f)
 
   eassert (FRAME_MAC_P (f));
 
-  set_frame_menubar (f, false, true);
+  set_frame_menubar (f, true);
   block_input ();
   selection = mac_activate_menubar_1 (f);
   unblock_input ();

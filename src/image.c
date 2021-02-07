@@ -1527,7 +1527,7 @@ prepare_image_for_display (struct frame *f, struct image *img)
       if (img->cg_image == NULL)
 	{
 	  img->load_failed_p = 1;
-	  img->type->free (f, img);
+	  img->type->free_img (f, img);
 	}
     }
 #endif

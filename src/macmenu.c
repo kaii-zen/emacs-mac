@@ -102,7 +102,7 @@ If FRAME is nil or not given, use the selected frame.  */)
    it is set the first time this is called, from initialize_frame_menubar.  */
 
 void
-set_frame_menubar (struct frame *f, bool first_time, bool deep_p)
+set_frame_menubar (struct frame *f, bool deep_p)
 {
   int menubar_widget = f->output_data.mac->menubar_widget;
   Lisp_Object items;
